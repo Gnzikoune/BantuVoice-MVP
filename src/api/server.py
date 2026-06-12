@@ -16,11 +16,14 @@ from pydantic import BaseModel
 import jwt
 import bcrypt
 from tinydb import TinyDB, Query
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # --- CONFIGURATION SÉCURITÉ ---
-# Dans un projet en production, cette clé doit être dans un fichier .env (cf. AI_WORKFLOW_RULES)
-# Pour ce MVP local, nous la définissons ici.
-SECRET_KEY = "bantuvoice_csgria_secret_key_super_secure"
+# Clé secrète chargée depuis le fichier .env pour respecter les règles (AI_WORKFLOW_RULES)
+SECRET_KEY = os.getenv("JWT_SECRET_KEY", "fallback_secret_for_dev_only")
+DEFAULT_PASSWORD = os.getenv("DEFAULT_TEST_PASSWORD", "password123")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24  # 1 jour
 
@@ -47,12 +50,12 @@ def init_db():
         users_table.insert({
             "username": "linguiste_a",
             "full_name": "Linguiste A (Fang)",
-            "hashed_password": get_password_hash("password123")
+            "hashed_password": get_password_hash(DEFAULT_PASSWORD)
         })
         users_table.insert({
             "username": "linguiste_b",
             "full_name": "Linguiste B (Fang)",
-            "hashed_password": get_password_hash("password123")
+            "hashed_password": get_password_hash(DEFAULT_PASSWORD)
         })
 
 init_db()
