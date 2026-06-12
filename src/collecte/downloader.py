@@ -38,6 +38,7 @@ def download_audio(video_url: str, output_dir: str = "data/raw") -> bool:
         'extractor_args': {
             'youtube': ['player_client=default'] # [SECURITE] Contournement des erreurs 403 de YouTube
         },
+        'ffmpeg_location': r'C:\Users\hp\AppData\Local\Microsoft\WinGet\Packages\Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe\ffmpeg-8.1.1-full_build\bin',
         'quiet': False,     # Affichage de la progression
         'no_warnings': True # Nettoyage des logs console
     }
