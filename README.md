@@ -126,6 +126,14 @@ Le Frontend (React) sera accessible sur le port HTTP classique (80), et le Backe
 
 ---
 
+---
+
+## 🤝 Contribuer au Projet
+
+Si vous rejoignez l'équipe technique, votre première étape obligatoire est de lire le **[Guide de Contribution (CONTRIBUTING.md)](./CONTRIBUTING.md)**. Il détaille le Workflow Git (Branches, Pull Requests) et les obligations de rigueur scientifique.
+
+---
+
 ## ⚖️ Éthique et Souveraineté
 - **Souveraineté :** Les corpus finaux restent sous le contrôle du CSGR-IA.
 - **Transparence :** Consultez le fichier [`RESEARCH_LOG.md`](./RESEARCH_LOG.md) qui trace toutes nos décisions scientifiques, nos échecs méthodologiques (ex: Hallucinations de Whisper) et nos résolutions.
