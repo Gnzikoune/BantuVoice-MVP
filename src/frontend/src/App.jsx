@@ -17,7 +17,11 @@ function Login({ onLogin, error }) {
         <h2>Connexion Scientifique</h2>
         <p>Identifiez-vous pour accéder à l'espace d'annotation BantuVoice.</p>
         
-        {error && <div className="error-message">{error}</div>}
+        <div style={{background: 'rgba(255,255,255,0.05)', padding: '1rem', borderRadius: '8px', marginBottom: '1.5rem', fontSize: '0.9rem', textAlign: 'left', border: '1px solid rgba(255,255,255,0.1)'}}>
+          <strong style={{color: 'var(--accent-color)'}}>Comptes de test (Double Annotation) :</strong><br/>
+          👤 <code>linguiste_a</code> / <code>password123</code><br/>
+          👤 <code>linguiste_b</code> / <code>password123</code>
+        </div>
         
         <form onSubmit={handleSubmit} className="login-form">
           <div className="form-group">
@@ -82,7 +86,9 @@ function App() {
   }, [token])
 
   /**
-   * Tente de se connecter à l'API pour récupérer un token JWT
+   * Tente de se connecter à l'API FastAPI pour récupérer un token JWT.
+   * @param {string} username - Le nom d'utilisateur (ex: linguiste_a)
+   * @param {string} password - Le mot de passe de l'utilisateur
    */
   const handleLogin = async (username, password) => {
     try {
