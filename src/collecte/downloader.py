@@ -78,7 +78,7 @@ def download_source(url: str, output_dir: str = "data/raw") -> bool:
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             # On attache notre écouteur (Hook) qui s'exécutera après la conversion FFmpeg
-            ydl.add_post_processor_hook(postprocessor_hook)
+            ydl.add_postprocessor_hook(postprocessor_hook)
             # On lance le téléchargement (qui gère tout seul vidéos, playlists, ou chaînes)
             ydl.download([url])
         return True
