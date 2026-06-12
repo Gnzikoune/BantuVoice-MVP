@@ -14,7 +14,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from pydantic import BaseModel
 import jwt
-from passlib.context import CryptContext
+import bcrypt
 from tinydb import TinyDB, Query
 
 # --- CONFIGURATION SÉCURITÉ ---
@@ -24,8 +24,12 @@ SECRET_KEY = "bantuvoice_csgria_secret_key_super_secure"
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24  # 1 jour
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login")
+
+# Fonction utilitaire de hachage via Bcrypt direct (évite le bug de Passlib)
+def get_password_hash(password: str) -> str:
+    salt = bcrypt.gensalt()
+    return bcrypt.hashpw(password.encode('utf-8'), salt).decode('utf-8')
 
 # --- INITIALISATION BASE DE DONNÉES ---
 DB_DIR = "data/db"
@@ -43,12 +47,12 @@ def init_db():
         users_table.insert({
             "username": "linguiste_a",
             "full_name": "Linguiste A (Fang)",
-            "hashed_password": pwd_context.hash("password123")
+            "hashed_password": get_password_hash("password123")
         })
         users_table.insert({
             "username": "linguiste_b",
             "full_name": "Linguiste B (Fang)",
-            "hashed_password": pwd_context.hash("password123")
+            "hashed_password": get_password_hash("password123")
         })
 
 init_db()
@@ -78,8 +82,8 @@ class AnnotationPayload(BaseModel):
     annotated_text: str
 
 # --- FONCTIONS SÉCURITÉ ---
-def verify_password(plain_password, hashed_password):
-    return pwd_context.verify(plain_password, hashed_password)
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    return bcrypt.checkpw(plain_password.encode('utf-8'), hashed_password.encode('utf-8'))
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     to_encode = data.copy()
