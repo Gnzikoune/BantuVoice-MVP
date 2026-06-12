@@ -1,0 +1,16 @@
+[
+    {
+        "channel_id": "Dumwenu_TV",
+        "url": "https://www.youtube.com/@dumwenutv8857",
+        "language_code": "multiple",
+        "target_languages": ["fang", "punu", "obamba", "massangu", "gisir", "teke"],
+        "status": "inactive" 
+    },
+    {
+        "channel_id": "Test_Video",
+        "url": "https://www.youtube.com/watch?v=jNQXAC9IVRw",
+        "language_code": "en",
+        "target_languages": [],
+        "status": "active"
+    }
+]
