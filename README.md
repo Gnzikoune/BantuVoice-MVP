@@ -22,9 +22,9 @@ Le projet est divisé en trois modules autonomes :
    - Rôle : Télécharger massivement l'audio depuis des sources ciblées au format imposé par les modèles ASR (`WAV`, `16kHz`, `mono`).
    - Métadonnées : Extraction automatique en JSON.
 
-2. **Étape 02 : Transcription Automatique (IA)** `(À VENIR)`
-   - Outil : `Whisper large-v3` (OpenAI).
-   - Rôle : Transcrire l'audio brut en texte avec horodatage au niveau du mot (`WhisperX`).
+2. **Étape 02 : Segmentation Audio par IA (Whisper VAD)** `(TERMINÉ)`
+   - Outil : `Whisper` (OpenAI).
+   - Rôle Scientifique : Les langues gabonaises n'étant pas supportées nativement par l'IA, Whisper est utilisé *exclusivement* comme outil de segmentation spatio-temporelle (VAD - Voice Activity Detection). Il découpe intelligemment l'audio en courts segments horodatés (sans altérer le sens), préparant le terrain pour l'annotation humaine depuis une base propre.
 
 3. **Étape 03 : Validation par Locuteurs Natifs** `(À VENIR)`
    - Stack : `React.js` (Frontend), `FastAPI` (Backend), `MongoDB` (Database).
