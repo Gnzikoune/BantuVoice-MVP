@@ -6,6 +6,8 @@ conformément aux exigences du projet BantuVoice (WAV, 16kHz, mono).
 """
 
 import os
+import json
+from datetime import datetime
 import yt_dlp
 
 def download_audio(video_url: str, output_dir: str = "data/raw") -> bool:
@@ -46,7 +48,27 @@ def download_audio(video_url: str, output_dir: str = "data/raw") -> bool:
     try:
         # Exécution dans un bloc 'with' pour gérer proprement les ressources
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            ydl.download([video_url])
+            # extract_info télécharge ET retourne le dictionnaire complet des métadonnées
+            info_dict = ydl.extract_info(video_url, download=True)
+            video_id = info_dict.get('id', 'unknown_id')
+            
+            # Structuration des métadonnées selon le Cahier des Charges BantuVoice
+            metadata = {
+                "source_id": video_id, 
+                "language_code": "unknown", # Sera mis à jour plus tard par l'annotateur ou l'IA
+                "audio_path": f"{output_dir}/{video_id}.wav",
+                "duration_seconds": info_dict.get('duration', 0),
+                "publication_date": info_dict.get('upload_date', 'unknown'),
+                "channel_name": info_dict.get('uploader', 'unknown'),
+                "quality_flag": "medium", # Qualité par défaut (sera mesurée via le SNR par Aryad)
+                "collection_date": datetime.now().strftime("%Y-%m-%d")
+            }
+            
+            # Sauvegarde des métadonnées en fichier JSON à côté de l'audio
+            json_path = os.path.join(output_dir, f"{video_id}.json")
+            with open(json_path, 'w', encoding='utf-8') as f:
+                json.dump(metadata, f, ensure_ascii=False, indent=4)
+                
         return True
     except Exception as e:
         # Catch explicite pour ne pas faire crasher un pipeline entier si une vidéo plante
