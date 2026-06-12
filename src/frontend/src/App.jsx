@@ -1,121 +1,152 @@
-import { useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from './assets/vite.svg'
-import heroImg from './assets/hero.png'
+import { useState, useEffect, useRef } from 'react'
 import './App.css'
 
 function App() {
-  const [count, setCount] = useState(0)
+  const [segments, setSegments] = useState([])
+  const [activeSegment, setActiveSegment] = useState(null)
+  const [annotation, setAnnotation] = useState("")
+  const [loading, setLoading] = useState(true)
+  
+  const API_URL = "http://127.0.0.1:8000"
+  const audioRef = useRef(null)
+
+  useEffect(() => {
+    fetchSegments()
+  }, [])
+
+  const fetchSegments = async () => {
+    try {
+      const response = await fetch(`${API_URL}/segments`)
+      const data = await response.json()
+      setSegments(data.segments)
+      setLoading(false)
+    } catch (error) {
+      console.error("Erreur lors de la récupération des segments:", error)
+      setLoading(false)
+    }
+  }
+
+  const handleSelectSegment = (seg) => {
+    setActiveSegment(seg)
+    setAnnotation(seg.annotated_text || "")
+    // On recharge l'audio
+    if (audioRef.current) {
+      audioRef.current.load()
+    }
+  }
+
+  const handleSubmit = async () => {
+    if (!activeSegment) return
+    
+    try {
+      const response = await fetch(`${API_URL}/annotate`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          video_id: activeSegment.video_id,
+          segment_id: activeSegment.segment_id,
+          annotated_text: annotation,
+          annotator_name: "Gildas" // A rendre dynamique plus tard
+        })
+      })
+      
+      if (response.ok) {
+        // Rafraîchir la liste
+        fetchSegments()
+        // Garder le segment actif mais mettre à jour son statut visuellement
+        setActiveSegment({...activeSegment, annotated_text: annotation, status: "annotated"})
+      }
+    } catch (error) {
+      console.error("Erreur lors de la sauvegarde:", error)
+    }
+  }
 
   return (
-    <>
-      <section id="center">
-        <div className="hero">
-          <img src={heroImg} className="base" width="170" height="179" alt="" />
-          <img src={reactLogo} className="framework" alt="React logo" />
-          <img src={viteLogo} className="vite" alt="Vite logo" />
-        </div>
-        <div>
-          <h1>Get started</h1>
-          <p>
-            Edit <code>src/App.jsx</code> and save to test <code>HMR</code>
-          </p>
-        </div>
-        <button
-          type="button"
-          className="counter"
-          onClick={() => setCount((count) => count + 1)}
-        >
-          Count is {count}
-        </button>
-      </section>
+    <div className="app-container">
+      <header className="header">
+        <h1>BantuVoice</h1>
+        <p>Plateforme Scientifique d'Annotation (CSGR-IA)</p>
+      </header>
 
-      <div className="ticks"></div>
+      {loading ? (
+        <div className="empty-state">Chargement des données...</div>
+      ) : (
+        <div className="dashboard">
+          {/* Liste des segments à gauche */}
+          <div className="segment-list">
+            <h2>Segments ({segments.length})</h2>
+            {segments.length === 0 ? (
+              <p className="empty-state">Aucun segment à annoter. Lancez l'outil Whisper d'abord !</p>
+            ) : (
+              segments.map((seg) => (
+                <div 
+                  key={`${seg.video_id}-${seg.segment_id}`}
+                  className={`segment-item ${activeSegment?.segment_id === seg.segment_id ? 'active' : ''}`}
+                  onClick={() => handleSelectSegment(seg)}
+                >
+                  <span>Segment {seg.segment_id} ({seg.start}s - {seg.end}s)</span>
+                  <span className={`status-badge status-${seg.status}`}>
+                    {seg.status === 'annotated' ? 'Validé' : 'À faire'}
+                  </span>
+                </div>
+              ))
+            )}
+          </div>
 
-      <section id="next-steps">
-        <div id="docs">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#documentation-icon"></use>
-          </svg>
-          <h2>Documentation</h2>
-          <p>Your questions, answered</p>
-          <ul>
-            <li>
-              <a href="https://vite.dev/" target="_blank">
-                <img className="logo" src={viteLogo} alt="" />
-                Explore Vite
-              </a>
-            </li>
-            <li>
-              <a href="https://react.dev/" target="_blank">
-                <img className="button-icon" src={reactLogo} alt="" />
-                Learn more
-              </a>
-            </li>
-          </ul>
-        </div>
-        <div id="social">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#social-icon"></use>
-          </svg>
-          <h2>Connect with us</h2>
-          <p>Join the Vite community</p>
-          <ul>
-            <li>
-              <a href="https://github.com/vitejs/vite" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#github-icon"></use>
-                </svg>
-                GitHub
-              </a>
-            </li>
-            <li>
-              <a href="https://chat.vite.dev/" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#discord-icon"></use>
-                </svg>
-                Discord
-              </a>
-            </li>
-            <li>
-              <a href="https://x.com/vite_js" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#x-icon"></use>
-                </svg>
-                X.com
-              </a>
-            </li>
-            <li>
-              <a href="https://bsky.app/profile/vite.dev" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#bluesky-icon"></use>
-                </svg>
-                Bluesky
-              </a>
-            </li>
-          </ul>
-        </div>
-      </section>
+          {/* Espace de travail à droite */}
+          <div className="annotation-workspace">
+            {!activeSegment ? (
+              <div className="empty-state">
+                <h3>Sélectionnez un segment à gauche pour commencer</h3>
+                <p>Écoutez l'extrait et transcrivez-le avec précision.</p>
+              </div>
+            ) : (
+              <>
+                <div className="player-section">
+                  <h3>Lecture de l'extrait</h3>
+                  <p>De {activeSegment.start}s à {activeSegment.end}s</p>
+                  
+                  {/* Utilisation de l'API FastAPI pour servir le fichier */}
+                  <audio 
+                    ref={audioRef}
+                    className="audio-controls" 
+                    controls 
+                  >
+                    <source src={`${API_URL}/audio/${activeSegment.video_id}.wav#t=${activeSegment.start},${activeSegment.end}`} type="audio/wav" />
+                    Votre navigateur ne supporte pas l'audio.
+                  </audio>
 
-      <div className="ticks"></div>
-      <section id="spacer"></section>
-    </>
+                  {activeSegment.whisper_text && (
+                    <div className="whisper-hint">
+                      <strong>Base phonétique (IA) :</strong> "{activeSegment.whisper_text}"
+                    </div>
+                  )}
+                </div>
+
+                <div className="editor-section">
+                  <label htmlFor="annotation">Transcription Finale (Langue cible)</label>
+                  <textarea 
+                    id="annotation"
+                    className="annotation-input"
+                    value={annotation}
+                    onChange={(e) => setAnnotation(e.target.value)}
+                    placeholder="Tapez exactement ce que vous entendez..."
+                  />
+                  
+                  <div className="action-buttons">
+                    <button className="btn-submit" onClick={handleSubmit}>
+                      Enregistrer & Valider
+                    </button>
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
   )
 }
 
