@@ -110,6 +110,22 @@ npm run dev
 
 ---
 
+## 🚀 Déploiement en Production (Serveur VPS)
+
+Pour respecter la souveraineté des données (Section 5.2 de l'architecture), l'application est "conteneurisée" pour être déployée sur votre propre serveur Linux (ex: OVH, LIKUID) via Docker. Le code source contient donc une architecture **Monorepo**.
+
+**1. Pré-requis sur le serveur :**
+- Docker et Docker Compose installés.
+- Avoir créé le fichier `.env` sur le serveur contenant vos clés JWT.
+
+**2. Lancement en une commande :**
+```bash
+docker-compose up -d --build
+```
+Le Frontend (React) sera accessible sur le port HTTP classique (80), et le Backend (FastAPI) sur le port 8000. Les annotations et les audios sont sauvegardés sur le disque physique de manière persistante (Volume `./data`).
+
+---
+
 ## ⚖️ Éthique et Souveraineté
 - **Souveraineté :** Les corpus finaux restent sous le contrôle du CSGR-IA.
 - **Transparence :** Consultez le fichier [`RESEARCH_LOG.md`](./RESEARCH_LOG.md) qui trace toutes nos décisions scientifiques, nos échecs méthodologiques (ex: Hallucinations de Whisper) et nos résolutions.

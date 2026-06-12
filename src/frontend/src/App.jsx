@@ -61,11 +61,11 @@ function App() {
   const [segments, setSegments] = useState([])
   const [activeSegment, setActiveSegment] = useState(null)
   const [annotation, setAnnotation] = useState("")
-  const [loading, setLoading] = useState(false)
   const [theme, setTheme] = useState('dark')
   const [isSaved, setIsSaved] = useState(false)
   
-  const API_URL = "http://127.0.0.1:8000"
+  // URL dynamique pour s'adapter au serveur local ou VPS distant
+  const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000"
   const audioRef = useRef(null)
 
   // Gestion du thème
