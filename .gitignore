@@ -1,0 +1,27 @@
+# Environnements Virtuels
+venv/
+env/
+.env
+
+# Fichiers de cache Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Données (Audio, Modèles, Corpus) - IMPORTANT pour ne pas saturer Git
+data/raw/
+data/processed/
+data/models/
+*.wav
+*.mp3
+*.m4a
+*.json
+*.parquet
+
+# IDEs et OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
