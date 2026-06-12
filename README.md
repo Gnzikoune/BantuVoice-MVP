@@ -2,7 +2,7 @@
 
 **Initiative nationale de données linguistiques pour l'IA — CSGR-IA**
 
-*Scale AI · pour l'Afrique · fait par l'Afrique · porté par le CSGR-IA*
+*L'Intelligence Artificielle · pour l'Afrique · par l'Afrique · portée par le CSGR-IA*
 
 ---
 
