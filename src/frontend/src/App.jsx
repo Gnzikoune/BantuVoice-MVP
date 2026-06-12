@@ -14,18 +14,26 @@ function App() {
 
   // Gestion du thème
   useEffect(() => {
+    // Applique le thème au niveau de la racine HTML pour activer les variables CSS correspondantes
     document.documentElement.setAttribute('data-theme', theme)
   }, [theme])
 
+  /**
+   * Bascule l'état du thème entre "dark" et "light".
+   */
   const toggleTheme = () => {
     setTheme(prev => prev === 'dark' ? 'light' : 'dark')
   }
 
-  // Récupération des données
+  // Récupération initiale des données au chargement du composant
   useEffect(() => {
     fetchSegments()
   }, [])
 
+  /**
+   * Récupère la liste des segments à annoter depuis le Backend FastAPI.
+   * Met à jour l'état `segments` avec les données reçues.
+   */
   const fetchSegments = async () => {
     try {
       const response = await fetch(`${API_URL}/segments`)
@@ -38,19 +46,29 @@ function App() {
     }
   }
 
+  /**
+   * Gère la sélection d'un segment dans la liste latérale.
+   * Charge le texte existant et force le rechargement du lecteur audio.
+   * 
+   * @param {Object} seg - L'objet segment sélectionné.
+   */
   const handleSelectSegment = (seg) => {
     setActiveSegment(seg)
     setAnnotation(seg.annotated_text || "")
     setIsSaved(false)
-    // On recharge l'audio avec un léger délai pour que React mette à jour la source
+    // Délai nécessaire pour laisser le DOM mettre à jour la source audio avant de jouer
     setTimeout(() => {
       if (audioRef.current) {
         audioRef.current.load()
-        audioRef.current.play().catch(e => console.log("Lecture auto bloquée", e))
+        audioRef.current.play().catch(e => console.log("Lecture auto bloquée par le navigateur", e))
       }
     }, 50)
   }
 
+  /**
+   * Envoie l'annotation saisie par l'utilisateur au backend pour sauvegarde.
+   * Si la requête réussit, met à jour l'interface visuellement.
+   */
   const handleSubmit = async () => {
     if (!activeSegment) return
     
@@ -83,9 +101,16 @@ function App() {
     }
   }
 
-  // Permet de sauvegarder avec Ctrl+Enter
+  /**
+   * Écoute les événements clavier sur le champ de texte.
+   * Déclenche la sauvegarde automatique si Ctrl + Entrée sont pressés.
+   * 
+   * @param {Event} e - L'événement clavier React.
+   */
   const handleKeyDown = (e) => {
     if (e.ctrlKey && e.key === 'Enter') {
+      // Annule le comportement par défaut (retour à la ligne) et sauvegarde
+      e.preventDefault()
       handleSubmit()
     }
   }
