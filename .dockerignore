@@ -1,0 +1,15 @@
+# Ne pas copier ces fichiers dans l'image Docker (trop lourds ou inutiles)
+venv/
+node_modules/
+dist/
+__pycache__/
+.git/
+.env
+
+# EXCLURE LES DONNEES LOURDES (AUDIO)
+data/
+*.wav
+*.mp3
+*.m4a
+*.json
+!config/sources.json
