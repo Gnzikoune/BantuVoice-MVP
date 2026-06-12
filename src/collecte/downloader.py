@@ -35,6 +35,9 @@ def download_audio(video_url: str, output_dir: str = "data/raw") -> bool:
             '-ar', '16000', # Forçage à 16 kHz (idéal pour Whisper)
             '-ac', '1'      # Forçage en Mono (idéal pour Whisper)
         ],
+        'extractor_args': {
+            'youtube': ['player_client=default'] # [SECURITE] Contournement des erreurs 403 de YouTube
+        },
         'quiet': False,     # Affichage de la progression
         'no_warnings': True # Nettoyage des logs console
     }
