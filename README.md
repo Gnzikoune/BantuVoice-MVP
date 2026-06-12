@@ -83,6 +83,24 @@ Pour contourner l'absence des langues gabonaises dans l'IA, forcez un alphabet p
 python src/transcription/transcriber.py --audio "data/raw/ID_VIDEO.wav" --language "fr" --prompt "Voici une transcription d'une langue bantu (Fang) d'Afrique centrale utilisant l'alphabet latin."
 ```
 
+### Module d'Annotation Web (Phase 4)
+
+L'interface d'annotation permet aux linguistes de corriger et de valider les segments générés par l'IA. Elle est divisée en deux parties :
+
+**1. Le Backend (FastAPI) :**
+Sert les données JSON et les fichiers audio. À lancer dans un premier terminal :
+```bash
+# Depuis la racine du projet
+python src/api/server.py
+```
+
+**2. Le Frontend (React) :**
+L'interface utilisateur. À lancer dans un second terminal :
+```bash
+cd src/frontend
+npm run dev
+```
+
 ---
 
 ## ⚖️ Éthique et Souveraineté
