@@ -26,9 +26,13 @@ Le projet est divisé en trois modules autonomes :
    - Outil : `Whisper` (OpenAI).
    - Rôle Scientifique : Les langues gabonaises n'étant pas supportées nativement par l'IA, Whisper est utilisé *exclusivement* comme outil de segmentation spatio-temporelle (VAD - Voice Activity Detection). Il découpe intelligemment l'audio en courts segments horodatés (sans altérer le sens), préparant le terrain pour l'annotation humaine depuis une base propre.
 
-3. **Étape 03 : Validation par Locuteurs Natifs** `(À VENIR)`
-   - Stack : `React.js` (Frontend), `FastAPI` (Backend), `MongoDB` (Database).
-   - Rôle : Interface web permettant la double annotation en aveugle et le calcul du taux d'erreur (WER).
+3. **Étape 03 : Validation Scientifique (Double Annotation)** `(MVP TERMINÉ)`
+   - Stack : `React.js` (Frontend), `FastAPI` (Backend), `TinyDB` (Base de données locale de transition), `JWT` (Sécurité).
+   - Rôle : Interface web sécurisée imposant un protocole de "Double Annotation en aveugle". Deux linguistes traduisent le même segment sans voir le travail de l'autre, permettant le calcul du taux d'accord inter-annotateurs (ex: Cohen's Kappa) exigé par les standards internationaux.
+
+4. **Étape 04 : Export et Publication (Hugging Face)** `(À VENIR)`
+   - Format : `Apache Parquet` + `Dataset Card`.
+   - Rôle : Une fois le volume cible atteint, un script extraira les segments doublement validés de la base de données pour générer le corpus final publiable.
 
 ---
 
@@ -85,16 +89,19 @@ python src/transcription/transcriber.py --audio "data/raw/ID_VIDEO.wav" --langua
 
 ### Module d'Annotation Web (Phase 4)
 
-L'interface d'annotation permet aux linguistes de corriger et de valider les segments générés par l'IA. Elle est divisée en deux parties :
+L'interface d'annotation permet aux linguistes de corriger et de valider les segments générés par l'IA. Conformément au cadre scientifique, elle intègre une base de données (`TinyDB`) et une authentification stricte (`JWT`) pour garantir la traçabilité de la Double Annotation.
 
-**1. Le Backend (FastAPI) :**
-Sert les données JSON et les fichiers audio. À lancer dans un premier terminal :
+**0. Sécurité (Configuration Initiale) :**
+Copiez le fichier `.env.example` et renommez-le en `.env` à la racine pour sécuriser vos mots de passe.
+
+**1. Le Backend (FastAPI & Base de données) :**
+À lancer dans un premier terminal :
 ```bash
-# Depuis la racine du projet
+# Activer l'environnement virtuel puis lancer le serveur
 python src/api/server.py
 ```
 
-**2. Le Frontend (React) :**
+**2. Le Frontend (React.js) :**
 L'interface utilisateur. À lancer dans un second terminal :
 ```bash
 cd src/frontend
