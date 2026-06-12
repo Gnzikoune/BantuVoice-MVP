@@ -68,6 +68,21 @@ Remplissez le fichier `config/sources.json` en y activant (`"status": "active"`)
 python src/collecte/downloader.py --registry config/sources.json
 ```
 
+### Module de Transcription (`src/transcription/transcriber.py`)
+
+Ce script utilise l'IA pour transcrire l'audio et générer les segments horodatés (injectés automatiquement dans le fichier `.json`).
+
+**Usage Basique :**
+```bash
+python src/transcription/transcriber.py --audio "data/raw/ID_VIDEO.wav"
+```
+
+**Usage Avancé (Langues à faibles ressources) :**
+Pour contourner l'absence des langues gabonaises dans l'IA, forcez un alphabet phonétique proche (ex: `fr`) et donnez un contexte (prompt) :
+```bash
+python src/transcription/transcriber.py --audio "data/raw/ID_VIDEO.wav" --language "fr" --prompt "Voici une transcription d'une langue bantu (Fang) d'Afrique centrale utilisant l'alphabet latin."
+```
+
 ---
 
 ## ⚖️ Éthique et Souveraineté
