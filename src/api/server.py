@@ -1,55 +1,152 @@
 """
 Serveur Backend BantuVoice (FastAPI).
-
-Ce serveur sert d'API pour la plateforme Web d'annotation (React).
-Il lit les données générées par Whisper (segments) et permet
-aux annotateurs de sauvegarder leurs corrections.
+Version 2.0 - Sécurisée (JWT) et Base de Données (TinyDB)
 """
 
 import os
 import json
-from fastapi import FastAPI, HTTPException
+from datetime import datetime, timedelta
+from typing import List, Optional
+
+from fastapi import FastAPI, HTTPException, Depends, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from pydantic import BaseModel
-from typing import List
+import jwt
+from passlib.context import CryptContext
+from tinydb import TinyDB, Query
 
-app = FastAPI(title="BantuVoice Annotation API", version="1.0")
+# --- CONFIGURATION SÉCURITÉ ---
+# Dans un projet en production, cette clé doit être dans un fichier .env (cf. AI_WORKFLOW_RULES)
+# Pour ce MVP local, nous la définissons ici.
+SECRET_KEY = "bantuvoice_csgria_secret_key_super_secure"
+ALGORITHM = "HS256"
+ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24  # 1 jour
 
-# Permettre à l'application React (qui tournera sur un autre port) de communiquer avec l'API
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login")
+
+# --- INITIALISATION BASE DE DONNÉES ---
+DB_DIR = "data/db"
+DATA_DIR = "data/raw"
+os.makedirs(DB_DIR, exist_ok=True)
+
+db = TinyDB(os.path.join(DB_DIR, 'database.json'))
+users_table = db.table('users')
+annotations_table = db.table('annotations')
+
+# Fonction utilitaire pour créer des utilisateurs de test si la table est vide
+def init_db():
+    if len(users_table) == 0:
+        print("Initialisation de la base de données : création des comptes de test...")
+        users_table.insert({
+            "username": "linguiste_a",
+            "full_name": "Linguiste A (Fang)",
+            "hashed_password": pwd_context.hash("password123")
+        })
+        users_table.insert({
+            "username": "linguiste_b",
+            "full_name": "Linguiste B (Fang)",
+            "hashed_password": pwd_context.hash("password123")
+        })
+
+init_db()
+
+# --- INITIALISATION API ---
+app = FastAPI(title="BantuVoice Annotation API", version="2.0")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], # En MVP on autorise tout. En prod on mettra l'URL exacte du frontend.
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-DATA_DIR = "data/raw"
-# Permet au web de lire les fichiers audio (ex: http://localhost:8000/audio/XYZ.wav)
 if os.path.exists(DATA_DIR):
     app.mount("/audio", StaticFiles(directory=DATA_DIR), name="audio")
+
+# --- MODÈLES PYDANTIC ---
+class Token(BaseModel):
+    access_token: str
+    token_type: str
 
 class AnnotationPayload(BaseModel):
     video_id: str
     segment_id: int
     annotated_text: str
-    annotator_name: str
 
-@app.get("/")
-def read_root():
-    return {"message": "Bienvenue sur l'API BantuVoice"}
+# --- FONCTIONS SÉCURITÉ ---
+def verify_password(plain_password, hashed_password):
+    return pwd_context.verify(plain_password, hashed_password)
+
+def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
+    to_encode = data.copy()
+    if expires_delta:
+        expire = datetime.utcnow() + expires_delta
+    else:
+        expire = datetime.utcnow() + timedelta(minutes=15)
+    to_encode.update({"exp": expire})
+    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    return encoded_jwt
+
+async def get_current_user(token: str = Depends(oauth2_scheme)):
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Token invalide ou expiré",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        username: str = payload.get("sub")
+        if username is None:
+            raise credentials_exception
+    except jwt.PyJWTError:
+        raise credentials_exception
+        
+    UserQuery = Query()
+    user = users_table.get(UserQuery.username == username)
+    if user is None:
+        raise credentials_exception
+    return user
+
+# --- ROUTES API ---
+
+@app.post("/login", response_model=Token)
+async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends()):
+    UserQuery = Query()
+    user = users_table.get(UserQuery.username == form_data.username)
+    
+    if not user or not verify_password(form_data.password, user['hashed_password']):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Nom d'utilisateur ou mot de passe incorrect",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+        
+    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token = create_access_token(
+        data={"sub": user['username'], "full_name": user['full_name']},
+        expires_delta=access_token_expires
+    )
+    return {"access_token": access_token, "token_type": "bearer"}
+
+@app.get("/me")
+async def read_users_me(current_user: dict = Depends(get_current_user)):
+    return {"username": current_user["username"], "full_name": current_user["full_name"]}
 
 @app.get("/segments")
-def get_segments_to_annotate():
+def get_segments_to_annotate(current_user: dict = Depends(get_current_user)):
     """
-    Parcourt le dossier data/raw, lit tous les fichiers JSON, 
-    et renvoie une liste de segments audio disponibles pour l'annotation.
+    Renvoie les segments disponibles. 
+    Logique d'aveuglement : le linguiste ne voit que son propre statut d'annotation.
     """
     if not os.path.exists(DATA_DIR):
         return {"segments": []}
         
     all_segments = []
+    AnnotationQuery = Query()
     
     for filename in os.listdir(DATA_DIR):
         if filename.endswith(".json"):
@@ -63,17 +160,30 @@ def get_segments_to_annotate():
                 transcription = data.get("transcription", {})
                 
                 for seg in transcription.get("segments", []):
-                    # On enrichit chaque segment avec les infos de la vidéo parente
-                    # pour que le Frontend sache exactement quel fichier jouer
+                    # On cherche si L'UTILISATEUR ACTUEL a déjà annoté ce segment dans TinyDB
+                    my_annotation = annotations_table.get(
+                        (AnnotationQuery.video_id == video_id) & 
+                        (AnnotationQuery.segment_id == seg["id"]) & 
+                        (AnnotationQuery.annotator == current_user["username"])
+                    )
+                    
+                    # On compte le nombre total d'annotations sur ce segment (pour savoir si c'est doublement annoté)
+                    all_anns_for_seg = annotations_table.search(
+                        (AnnotationQuery.video_id == video_id) & 
+                        (AnnotationQuery.segment_id == seg["id"])
+                    )
+                    total_annotations = len(all_anns_for_seg)
+                    
                     seg_info = {
                         "video_id": video_id,
                         "audio_path": audio_path,
                         "segment_id": seg["id"],
                         "start": seg["start"],
                         "end": seg["end"],
-                        "whisper_text": seg["text"], # Le texte "halluciné" (optionnel à afficher)
-                        "annotated_text": seg.get("annotated_text", ""), # Vide si pas encore annoté
-                        "status": "annotated" if "annotated_text" in seg else "pending"
+                        "whisper_text": seg["text"], 
+                        "annotated_text": my_annotation["text"] if my_annotation else "",
+                        "status": "annotated" if my_annotation else "pending",
+                        "total_annotations": total_annotations # Permet au web d'afficher si c'est en cours de double annotation
                     }
                     all_segments.append(seg_info)
             except Exception as e:
@@ -83,38 +193,37 @@ def get_segments_to_annotate():
     return {"segments": all_segments}
 
 @app.post("/annotate")
-def save_annotation(payload: AnnotationPayload):
+def save_annotation(payload: AnnotationPayload, current_user: dict = Depends(get_current_user)):
     """
-    Reçoit le texte tapé par l'annotateur humain depuis le Web,
-    et le sauvegarde définitivement dans le fichier JSON.
+    Sauvegarde l'annotation du linguiste connecté dans la base de données TinyDB (et non plus dans le JSON).
     """
-    json_path = os.path.join(DATA_DIR, f"{payload.video_id}.json")
+    AnnotationQuery = Query()
     
-    if not os.path.exists(json_path):
-        raise HTTPException(status_code=404, detail="Fichier JSON source introuvable")
+    # On vérifie si l'utilisateur a déjà annoté ce segment
+    existing = annotations_table.get(
+        (AnnotationQuery.video_id == payload.video_id) & 
+        (AnnotationQuery.segment_id == payload.segment_id) & 
+        (AnnotationQuery.annotator == current_user["username"])
+    )
+    
+    if existing:
+        # Mise à jour
+        annotations_table.update(
+            {"text": payload.annotated_text, "timestamp": str(datetime.utcnow())},
+            doc_ids=[existing.doc_id]
+        )
+    else:
+        # Nouvelle insertion
+        annotations_table.insert({
+            "video_id": payload.video_id,
+            "segment_id": payload.segment_id,
+            "annotator": current_user["username"],
+            "text": payload.annotated_text,
+            "timestamp": str(datetime.utcnow())
+        })
         
-    with open(json_path, 'r', encoding='utf-8') as f:
-        data = json.load(f)
-        
-    # Recherche du segment exact dans le JSON
-    segment_found = False
-    for seg in data.get("transcription", {}).get("segments", []):
-        if seg["id"] == payload.segment_id:
-            seg["annotated_text"] = payload.annotated_text
-            seg["annotator"] = payload.annotator_name
-            segment_found = True
-            break
-            
-    if not segment_found:
-        raise HTTPException(status_code=404, detail="Segment introuvable dans le fichier")
-        
-    # On sauvegarde sur le disque
-    with open(json_path, 'w', encoding='utf-8') as f:
-        json.dump(data, f, ensure_ascii=False, indent=4)
-        
-    return {"status": "success", "message": "Annotation sauvegardée avec succès !"}
+    return {"status": "success", "message": "Annotation sauvegardée en base de données de manière sécurisée."}
 
-# Si on lance ce fichier directement (python src/api/server.py)
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("server:app", host="127.0.0.1", port=8000, reload=True)

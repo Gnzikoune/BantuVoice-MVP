@@ -3,3 +3,7 @@ openai-whisper
 torch
 fastapi
 uvicorn
+tinydb
+pyjwt
+passlib
+bcrypt
