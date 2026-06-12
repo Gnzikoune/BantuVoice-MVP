@@ -112,7 +112,7 @@ npm run dev
 
 ## ⚖️ Éthique et Souveraineté
 - **Souveraineté :** Les corpus finaux restent sous le contrôle du CSGR-IA.
-- **Transparence :** Un registre de recherche trace toutes nos décisions scientifiques.
+- **Transparence :** Consultez le fichier [`RESEARCH_LOG.md`](./RESEARCH_LOG.md) qui trace toutes nos décisions scientifiques, nos échecs méthodologiques (ex: Hallucinations de Whisper) et nos résolutions.
 - **Sécurité :** Les secrets ne sont jamais commités, et le code est conçu pour gérer les erreurs externes de manière résiliente.
 
 *Porteurs de projet : Gildas & Aryad (Pôle Technique & Innovation, CSGR-IA).*
