@@ -43,8 +43,8 @@ def transcribe_audio(audio_path: str, model_size: str = "base") -> str:
         
     print(f"Transcription en cours pour le fichier : {audio_path}")
     try:
-        # Transcrit l'audio. On ne force pas encore la langue (ce sera l'Étape 4)
-        result = model.transcribe(audio_path)
+        # Transcrit l'audio. On désactive fp16 pour éviter l'avertissement sur CPU.
+        result = model.transcribe(audio_path, fp16=False)
         return result["text"].strip()
     except Exception as e:
         print(f"[ERREUR] Échec lors de la transcription de {audio_path} : {e}")
