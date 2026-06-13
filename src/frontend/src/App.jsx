@@ -49,6 +49,106 @@ function Login({ onLogin, error }) {
       </div>
     </div>
   )
+// Composant Panneau d'Administration
+function AdminPanel({ token, apiUrl }) {
+  const [url, setUrl] = useState('')
+  const [status, setStatus] = useState(null)
+  const [error, setError] = useState('')
+
+  // Polling pour récupérer le statut toutes les secondes si une tâche est en cours
+  useEffect(() => {
+    let interval;
+    if (status?.is_running) {
+      interval = setInterval(async () => {
+        try {
+          const res = await fetch(`${apiUrl}/admin/status`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+          })
+          if (res.ok) setStatus(await res.json())
+        } catch (e) { console.error(e) }
+      }, 1000)
+    } else {
+      // Récupération initiale
+      const fetchStatus = async () => {
+        try {
+          const res = await fetch(`${apiUrl}/admin/status`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+          })
+          if (res.ok) setStatus(await res.json())
+        } catch (e) {}
+      }
+      fetchStatus()
+    }
+    return () => clearInterval(interval)
+  }, [status?.is_running, token, apiUrl])
+
+  const handleCollect = async (e) => {
+    e.preventDefault()
+    setError('')
+    try {
+      const res = await fetch(`${apiUrl}/admin/collect`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ url })
+      })
+      if (!res.ok) {
+        const data = await res.json()
+        setError(data.detail || 'Erreur lors du lancement')
+      } else {
+        setStatus({ is_running: true, step: 'Initialisation...', progress: 5, message: 'Démarrage...' })
+        setUrl('')
+      }
+    } catch (e) {
+      setError('Erreur de connexion au serveur')
+    }
+  }
+
+  return (
+    <div className="admin-panel" style={{padding: '2rem', maxWidth: '800px', margin: '0 auto', width: '100%'}}>
+      <div className="login-card" style={{maxWidth: '100%'}}>
+        <h2>Panneau d'Administration CSGR-IA</h2>
+        <p>Lancer une nouvelle collecte de données linguistiques en arrière-plan.</p>
+        
+        <form onSubmit={handleCollect} className="login-form" style={{marginTop: '2rem'}}>
+          <div className="form-group">
+            <label>URL de la vidéo YouTube</label>
+            <input 
+              type="url" 
+              value={url} 
+              onChange={(e) => setUrl(e.target.value)} 
+              placeholder="https://www.youtube.com/watch?v=..."
+              required 
+              disabled={status?.is_running}
+            />
+          </div>
+          <button type="submit" className="btn-submit" disabled={status?.is_running} style={{width: '100%', justifyContent: 'center'}}>
+            {status?.is_running ? 'Collecte en cours...' : 'Lancer la Collecte & Segmentation'}
+          </button>
+          {error && <div style={{color: '#ff6b6b', marginTop: '1rem'}}>{error}</div>}
+        </form>
+
+        {status && (status.is_running || status.progress > 0) && (
+          <div style={{marginTop: '2rem', padding: '1.5rem', background: 'rgba(0,0,0,0.2)', borderRadius: '8px'}}>
+            <h3 style={{marginBottom: '1rem', fontSize: '1.1rem'}}>{status.step || 'En attente...'}</h3>
+            <div style={{width: '100%', height: '10px', background: 'rgba(255,255,255,0.1)', borderRadius: '5px', overflow: 'hidden'}}>
+              <div style={{
+                height: '100%', 
+                width: `${status.progress}%`, 
+                background: 'var(--accent-color)',
+                transition: 'width 0.5s ease'
+              }}></div>
+            </div>
+            <p style={{marginTop: '1rem', fontSize: '0.9rem', color: 'var(--text-secondary)'}}>
+              {status.message}
+            </p>
+          </div>
+        )}
+      </div>
+    </div>
+  )
 }
 
 function App() {
@@ -63,6 +163,10 @@ function App() {
   const [annotation, setAnnotation] = useState("")
   const [theme, setTheme] = useState('dark')
   const [isSaved, setIsSaved] = useState(false)
+  const [loading, setLoading] = useState(false)
+  
+  // Navigation RBAC
+  const [activeTab, setActiveTab] = useState('workspace')
   
   // URL dynamique pour s'adapter au serveur local ou VPS distant
   const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000"
@@ -223,6 +327,24 @@ function App() {
           <p>Espace sécurisé - Utilisateur : <strong>{user?.full_name || 'Chargement...'}</strong></p>
         </div>
         <div style={{display: 'flex', gap: '1rem', alignItems: 'center'}}>
+          {user?.role === 'admin' && (
+            <div className="tabs" style={{display: 'flex', gap: '0.5rem', marginRight: '1rem'}}>
+              <button 
+                className={`tab-btn ${activeTab === 'workspace' ? 'active' : ''}`}
+                onClick={() => setActiveTab('workspace')}
+                style={{padding: '0.5rem 1rem', borderRadius: '4px', border: 'none', background: activeTab === 'workspace' ? 'var(--accent-color)' : 'transparent', color: '#fff', cursor: 'pointer'}}
+              >
+                Espace Linguiste
+              </button>
+              <button 
+                className={`tab-btn ${activeTab === 'admin' ? 'active' : ''}`}
+                onClick={() => setActiveTab('admin')}
+                style={{padding: '0.5rem 1rem', borderRadius: '4px', border: 'none', background: activeTab === 'admin' ? 'var(--accent-color)' : 'transparent', color: '#fff', cursor: 'pointer'}}
+              >
+                ⚙️ Admin
+              </button>
+            </div>
+          )}
           <button onClick={toggleTheme} className="theme-toggle" title="Basculer le thème">
             {theme === 'dark' ? '☀️' : '🌙'}
           </button>
@@ -232,7 +354,9 @@ function App() {
         </div>
       </header>
 
-      {loading && segments.length === 0 ? (
+      {activeTab === 'admin' && user?.role === 'admin' ? (
+        <AdminPanel token={token} apiUrl={API_URL} />
+      ) : loading && segments.length === 0 ? (
         <div className="empty-state">
           <div className="empty-state-icon">⏳</div>
           <h2>Chargement de vos tâches...</h2>

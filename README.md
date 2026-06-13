@@ -87,42 +87,53 @@ Pour contourner l'absence des langues gabonaises dans l'IA, forcez un alphabet p
 python src/transcription/transcriber.py --audio "data/raw/ID_VIDEO.wav" --language "fr" --prompt "Voici une transcription d'une langue bantu (Fang) d'Afrique centrale utilisant l'alphabet latin."
 ```
 
-### Module d'Annotation Web (Phase 4)
+## 🚀 Installation & Déploiement
 
-L'interface d'annotation permet aux linguistes de corriger et de valider les segments générés par l'IA. Conformément au cadre scientifique, elle intègre une base de données (`TinyDB`) et une authentification stricte (`JWT`) pour garantir la traçabilité de la Double Annotation.
+L'application utilise une architecture **Monorepo** (Backend + Frontend) pour faciliter son déploiement.
+Pour respecter la souveraineté des données, l'application est conçue pour être déployée sur votre propre serveur Linux (VPS) ou ordinateur local.
 
-**0. Sécurité (Configuration Initiale) :**
-Copiez le fichier `.env.example` et renommez-le en `.env` à la racine pour sécuriser vos mots de passe.
-
-**1. Le Backend (FastAPI & Base de données) :**
-À lancer dans un premier terminal :
-```bash
-# Activer l'environnement virtuel puis lancer le serveur
-python src/api/server.py
-```
-
-**2. Le Frontend (React.js) :**
-L'interface utilisateur. À lancer dans un second terminal :
-```bash
-cd src/frontend
-npm run dev
-```
+### Option 1 : Déploiement Production (Recommandé - via Docker)
+C'est la méthode la plus simple et la plus propre, idéale pour un serveur VPS (ex: OVH, LIKUID).
+1. Installez [Docker](https://docs.docker.com/get-docker/) et Docker Compose.
+2. Clonez le dépôt et créez votre fichier de configuration de sécurité :
+   ```bash
+   git clone https://github.com/Gnzikoune/BantuVoice-MVP.git
+   cd BantuVoice-MVP
+   cp .env.example .env
+   ```
+3. *(Optionnel)* Modifiez le fichier `.env` pour définir un vrai mot de passe secret.
+4. Lancez l'intégralité du projet en une commande :
+   ```bash
+   docker-compose up -d --build
+   ```
+Le portail sera accessible sur le port HTTP classique (`http://localhost` ou l'IP de votre serveur). Les données audio et la base de données sont sauvegardées de manière persistante dans le dossier `./data/`.
 
 ---
 
-## 🚀 Déploiement en Production (Serveur VPS)
+### Option 2 : Développement Local (Manuel)
+Si vous êtes un développeur et souhaitez modifier le code source :
 
-Pour respecter la souveraineté des données (Section 5.2 de l'architecture), l'application est "conteneurisée" pour être déployée sur votre propre serveur Linux (ex: OVH, LIKUID) via Docker. Le code source contient donc une architecture **Monorepo**.
+**Pré-requis :** Python 3.10+, Node.js 18+, FFmpeg installé sur le système.
 
-**1. Pré-requis sur le serveur :**
-- Docker et Docker Compose installés.
-- Avoir créé le fichier `.env` sur le serveur contenant vos clés JWT.
-
-**2. Lancement en une commande :**
+**1. Le Backend (FastAPI) :**
 ```bash
-docker-compose up -d --build
+# Dans le dossier racine du projet
+python -m venv venv
+source venv/bin/activate  # (Sous Windows : venv\Scripts\activate)
+pip install -r requirements.txt
+cp .env.example .env
+python src/api/server.py
 ```
-Le Frontend (React) sera accessible sur le port HTTP classique (80), et le Backend (FastAPI) sur le port 8000. Les annotations et les audios sont sauvegardés sur le disque physique de manière persistante (Volume `./data`).
+*Le backend sera lancé sur http://127.0.0.1:8000*
+
+**2. Le Frontend (React.js) :**
+Dans un second terminal :
+```bash
+cd src/frontend
+npm install
+npm run dev
+```
+*L'interface utilisateur sera lancée sur le port par défaut de Vite (généralement 5173).*
 
 ---
 

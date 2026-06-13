@@ -43,20 +43,38 @@ db = TinyDB(os.path.join(DB_DIR, 'database.json'))
 users_table = db.table('users')
 annotations_table = db.table('annotations')
 
+# --- TRACKING DE TÂCHE ADMIN ---
+admin_task_status = {
+    "is_running": False,
+    "step": "",
+    "progress": 0,
+    "message": ""
+}
+
 # Fonction utilitaire pour créer des utilisateurs de test si la table est vide
 def init_db():
-    if len(users_table) == 0:
-        print("Initialisation de la base de données : création des comptes de test...")
+    UserQuery = Query()
+    # Administrateur
+    if not users_table.contains(UserQuery.username == "gildas_admin"):
+        print("Initialisation : création du compte admin...")
         users_table.insert({
-            "username": "linguiste_a",
-            "full_name": "Linguiste A (Fang)",
-            "hashed_password": get_password_hash(DEFAULT_PASSWORD)
+            "username": "gildas_admin",
+            "full_name": "Gildas (Admin)",
+            "hashed_password": get_password_hash(DEFAULT_PASSWORD),
+            "role": "admin"
         })
-        users_table.insert({
-            "username": "linguiste_b",
-            "full_name": "Linguiste B (Fang)",
-            "hashed_password": get_password_hash(DEFAULT_PASSWORD)
-        })
+    # Linguistes
+    for user_id in ["linguiste_a", "linguiste_b"]:
+        if not users_table.contains(UserQuery.username == user_id):
+            users_table.insert({
+                "username": user_id,
+                "full_name": f"Linguiste {user_id.split('_')[-1].upper()}",
+                "hashed_password": get_password_hash(DEFAULT_PASSWORD),
+                "role": "linguist"
+            })
+        else:
+            # Compatibilité pour le MVP : mise à jour des rôles existants
+            users_table.update({"role": "linguist"}, UserQuery.username == user_id)
 
 init_db()
 
@@ -118,6 +136,11 @@ async def get_current_user(token: str = Depends(oauth2_scheme)):
         raise credentials_exception
     return user
 
+def require_admin(current_user: dict = Depends(get_current_user)):
+    if current_user.get("role") != "admin":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Privilèges d'administrateur requis")
+    return current_user
+
 # --- ROUTES API ---
 
 @app.post("/login", response_model=Token)
@@ -134,14 +157,14 @@ async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(
         
     access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = create_access_token(
-        data={"sub": user['username'], "full_name": user['full_name']},
+        data={"sub": user['username'], "full_name": user['full_name'], "role": user.get('role', 'linguist')},
         expires_delta=access_token_expires
     )
     return {"access_token": access_token, "token_type": "bearer"}
 
 @app.get("/me")
 async def read_users_me(current_user: dict = Depends(get_current_user)):
-    return {"username": current_user["username"], "full_name": current_user["full_name"]}
+    return {"username": current_user["username"], "full_name": current_user["full_name"], "role": current_user.get("role", "linguist")}
 
 @app.get("/segments")
 def get_segments_to_annotate(current_user: dict = Depends(get_current_user)):
@@ -230,6 +253,66 @@ def save_annotation(payload: AnnotationPayload, current_user: dict = Depends(get
         })
         
     return {"status": "success", "message": "Annotation sauvegardée en base de données de manière sécurisée."}
+
+# --- ROUTES ADMIN ---
+import asyncio
+import glob
+
+class AdminCollectPayload(BaseModel):
+    url: str
+
+async def run_collection_pipeline(url: str):
+    try:
+        # Étape 1 : Téléchargement
+        process = await asyncio.create_subprocess_shell(
+            f"python src/collecte/downloader.py --url {url}",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        await process.communicate()
+        
+        # Étape 2 : Découpage IA
+        admin_task_status["step"] = "Étape 2 : Découpage IA (Whisper)"
+        admin_task_status["progress"] = 50
+        admin_task_status["message"] = "Analyse et segmentation temporelle..."
+
+        wav_files = glob.glob("data/raw/*.wav")
+        for wav in wav_files:
+            process_vad = await asyncio.create_subprocess_shell(
+                f"python src/transcription/transcriber.py --audio {wav}",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            await process_vad.communicate()
+
+        admin_task_status["step"] = "Terminé"
+        admin_task_status["progress"] = 100
+        admin_task_status["message"] = "La vidéo a été traitée avec succès et les segments sont disponibles."
+        
+    except Exception as e:
+        admin_task_status["step"] = "Erreur"
+        admin_task_status["message"] = f"Échec critique: {str(e)}"
+    finally:
+        await asyncio.sleep(4)
+        admin_task_status["is_running"] = False
+        admin_task_status["progress"] = 0
+
+@app.post("/admin/collect")
+async def admin_collect(payload: AdminCollectPayload, current_user: dict = Depends(require_admin)):
+    if admin_task_status["is_running"]:
+        raise HTTPException(status_code=400, detail="Une tâche de collecte est déjà en cours d'exécution.")
+    
+    admin_task_status["is_running"] = True
+    admin_task_status["step"] = "Étape 1 : Téléchargement"
+    admin_task_status["progress"] = 10
+    admin_task_status["message"] = f"Aspiration de la vidéo {payload.url} via yt-dlp..."
+
+    asyncio.create_task(run_collection_pipeline(payload.url))
+    return {"message": "Collecte lancée en arrière-plan"}
+
+@app.get("/admin/status")
+def admin_status(current_user: dict = Depends(require_admin)):
+    return admin_task_status
 
 if __name__ == "__main__":
     import uvicorn
