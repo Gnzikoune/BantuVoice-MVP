@@ -432,9 +432,16 @@ async def run_collection_pipeline(url: str, language: str):
             
             # 3. Notification de succès pour ce fichier spécifique
             json_path = wav.replace('.wav', '.json')
-            admin_task_status.update({
-                "message": f"[SUCCÈS] Transcription terminée et JSON mis à jour : {json_path}"
-            })
+            if os.path.exists(json_path):
+                with open(json_path, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    segments = data.get("transcription", {}).get("segments", [])
+                    duration = segments[-1]["end"] if segments else 0
+                    msg = f"[SUCCÈS] {os.path.basename(wav)}: {len(segments)} segments, {duration:.1f}s."
+            else:
+                msg = f"[SUCCÈS] Transcription terminée pour {os.path.basename(wav)}"
+            
+            admin_task_status.update({"message": msg})
             # Petite pause pour que le message soit lisible sur le frontend
             await asyncio.sleep(1)
 
