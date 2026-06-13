@@ -21,6 +21,17 @@ Conformément à la section **9.3 du Cadre Architectural**, ce document trace to
 - **Problème / Échec :** Lors des premières étapes (Collecte et Transcription), tout le code a été commité directement sur la branche principale (`main`), ce qui représente une mauvaise pratique de développement collaboratif.
 - **Résolution :** Prise de conscience par l'équipe et changement de stratégie en cours de route. Création de la branche `feature/plateforme-annotation` pour isoler le développement complexe de l'Étape 03 avant son déploiement.
 
+## Entrée 14 : Gestion dynamique des langues et Corrections UI
+- **Date :** Juin 2026
+- **Problème / UX :** La liste des langues était hardcodée (`SUPPORTED_LANGUAGES`) incluant un "Autre" statique. Des problèmes de rendu (scroll inutile, espace vide, select de mauvaise dimension et couleurs inadaptées en mode clair) pénalisaient le Dashboard.
+- **Hypothèse :** La migration vers une gestion DB (DynamoDB `Languages`) offre de la flexibilité à l'admin. Les problèmes UI provenaient du CSS mal ajusté sur flex-box et des styles inline non-liés aux variables CSS.
+- **Expérimentation / Code :**
+  1. Création de la table `Languages` dans DynamoDB via `init_aws.py` et ajout des endpoints POST/DELETE dans `server.py`.
+  2. Suppression de la liste statique et initialisation (seed) de 7 langues gabonaises (sans "Autre").
+  3. UI : Ajout d'un minHeight: 0 sur le conteneur flex `AdminPanel` pour éviter l'overflow du body. Réduction de la marge au-dessus du "Tableau de Bord". Ajustements des inputs `select` (color: var(--text-primary)).
+  4. Ajout d'un formulaire pour l'admin permettant la création de nouvelles langues à chaud.
+- **Résolution :** L'UI est parfaitement alignée, et l'architecture "Langues" devient véritablement extensible sans requérir de déploiements supplémentaires.
+
 ## Entrée 03 : Le Pivot "VAD" (Voice Activity Detection)
 - **Date :** Juin 2026
 - **Problème / Échec :** Lors des premiers tests de transcription sur une vidéo YouTube en langue Fang, le modèle Whisper a produit des hallucinations sévères. Bien que contraint par un prompt phonétique français (`--language "fr"`), l'IA a généré des mots français incohérents. Le WER brut (Word Error Rate) avoisinait les 100%.

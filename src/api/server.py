@@ -40,17 +40,8 @@ AWS_ENDPOINT_URL = os.getenv("AWS_ENDPOINT_URL", "http://localhost:4566")
 AWS_REGION = os.getenv("AWS_REGION", "eu-west-3")
 S3_BUCKET = "bantuvoice-audios"
 
-# Langues gabonaises supportées (liste extensible)
-SUPPORTED_LANGUAGES = [
-    {"code": "fang", "label": "Fang"},
-    {"code": "punu", "label": "Punu"},
-    {"code": "nzebi", "label": "Nzebi"},
-    {"code": "myene", "label": "Myene"},
-    {"code": "teke", "label": "Teke"},
-    {"code": "obamba", "label": "Obamba"},
-    {"code": "kota", "label": "Kota"},
-    {"code": "autre", "label": "Autre"},
-]
+# Les langues sont désormais gérées dynamiquement via DynamoDB (Table 'Languages').
+# SUPPORTED_LANGUAGES a été retiré.
 
 def get_dynamodb():
     """Retourne un client DynamoDB connecté à Floci (ou au vrai AWS en prod)."""
@@ -99,17 +90,26 @@ def init_db():
     ]
 
     for u in default_users:
-        try:
-            users_table.get_item(Key={"username": u["username"]})["Item"]
-            print(f"Utilisateur '{u['username']}' existe déjà.")
-        except KeyError:
-            print(f"Création de l'utilisateur '{u['username']}'...")
-            users_table.put_item(Item={
-                **u,
-                "hashed_password": get_password_hash(DEFAULT_PASSWORD)
-            })
-        except Exception as e:
-            print(f"Erreur init_db pour '{u['username']}': {e}")
+        if 'Item' not in users_table.get_item(Key={"username": u["username"]}):
+            u["hashed_password"] = get_password_hash(DEFAULT_PASSWORD)
+            users_table.put_item(Item=u)
+            print(f"Utilisateur {u['username']} créé avec le mot de passe par défaut.")
+
+    # Seed initial des langues
+    lang_table = dynamodb.Table('Languages')
+    if lang_table.scan()['Count'] == 0:
+        default_langs = [
+            {"code": "fang", "label": "Fang"},
+            {"code": "punu", "label": "Punu"},
+            {"code": "nzebi", "label": "Nzebi"},
+            {"code": "myene", "label": "Myene"},
+            {"code": "teke", "label": "Teke"},
+            {"code": "obamba", "label": "Obamba"},
+            {"code": "kota", "label": "Kota"}
+        ]
+        for lang in default_langs:
+            lang_table.put_item(Item=lang)
+        print("Langues par défaut insérées.")
 
 try:
     init_db()
@@ -222,8 +222,16 @@ async def read_users_me(current_user: dict = Depends(get_current_user)):
 
 @app.get("/languages")
 def get_languages():
-    """Retourne la liste des langues gabonaises supportées par le système."""
-    return {"languages": SUPPORTED_LANGUAGES}
+    """Retourne la liste des langues gabonaises depuis DynamoDB."""
+    dynamodb = get_dynamodb()
+    try:
+        response = dynamodb.Table('Languages').scan()
+        languages = response.get('Items', [])
+        # Trier par label
+        languages.sort(key=lambda x: x['label'])
+        return {"languages": languages}
+    except Exception as e:
+        return {"languages": []}
 
 @app.get("/audios")
 def get_audios(language: Optional[str] = None, current_user: dict = Depends(get_current_user)):
@@ -514,6 +522,29 @@ def delete_audio(audio_id: str, current_user: dict = Depends(get_current_user)):
         return {"status": "success", "message": f"Audio {audio_id} et ses segments ont été supprimés."}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Erreur lors de la suppression: {str(e)}")
+
+@app.post("/admin/languages")
+def add_language(data: dict, current_user: dict = Depends(get_current_user)):
+    """Ajoute une nouvelle langue (admin uniquement)."""
+    if current_user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Accès refusé.")
+    code = data.get("code")
+    label = data.get("label")
+    if not code or not label:
+        raise HTTPException(status_code=400, detail="code et label requis.")
+    
+    dynamodb = get_dynamodb()
+    dynamodb.Table('Languages').put_item(Item={"code": code.lower(), "label": label})
+    return {"status": "success", "message": "Langue ajoutée."}
+
+@app.delete("/admin/languages/{code}")
+def delete_language(code: str, current_user: dict = Depends(get_current_user)):
+    """Supprime une langue."""
+    if current_user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Accès refusé.")
+    dynamodb = get_dynamodb()
+    dynamodb.Table('Languages').delete_item(Key={'code': code})
+    return {"status": "success"}
 
 if __name__ == "__main__":
     import uvicorn

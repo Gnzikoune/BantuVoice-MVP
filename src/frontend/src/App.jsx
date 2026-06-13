@@ -50,6 +50,8 @@ function Login({ onLogin, error }) {
 function AdminPanel({ token, apiUrl }) {
   const [url, setUrl] = useState('')
   const [language, setLanguage] = useState('')
+  const [newLangCode, setNewLangCode] = useState('')
+  const [newLangLabel, setNewLangLabel] = useState('')
   const [languages, setLanguages] = useState([])
   const [status, setStatus] = useState(null)
   const [error, setError] = useState('')
@@ -138,6 +140,25 @@ function AdminPanel({ token, apiUrl }) {
     }
   }
 
+  const handleAddLanguage = async (e) => {
+    e.preventDefault();
+    if (!newLangCode || !newLangLabel) return;
+    try {
+      const res = await fetch(`${apiUrl}/admin/languages`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ code: newLangCode, label: newLangLabel })
+      });
+      if (res.ok) {
+        setLanguages([...languages, { code: newLangCode.toLowerCase(), label: newLangLabel }].sort((a,b) => a.label.localeCompare(b.label)));
+        setNewLangCode('');
+        setNewLangLabel('');
+      } else {
+        alert("Erreur lors de l'ajout de la langue.");
+      }
+    } catch (e) { console.error(e); }
+  }
+
   // Métriques métier
   const totalSegments = audios.reduce((s, a) => s + (a.segment_count || 0), 0)
   const langCodes = [...new Set(audios.map(a => a.language))]
@@ -212,7 +233,7 @@ function AdminPanel({ token, apiUrl }) {
         {/* ═══ VUE D'ENSEMBLE ═══ */}
         {activeTab === 'overview' && (
           <div>
-            <div style={{ marginBottom: '2rem' }}>
+            <div style={{ marginBottom: '1rem' }}>
               <h2 style={{ margin: 0, fontSize: '1.65rem', fontWeight: 700, color: 'var(--text-primary)' }}>Tableau de Bord</h2>
               <p style={{ margin: '0.3rem 0 0', color: 'var(--text-secondary)', fontSize: '0.88rem' }}>Corpus BantuVoice — Patrimoine linguistique gabonais</p>
             </div>
@@ -324,14 +345,14 @@ function AdminPanel({ token, apiUrl }) {
             <div style={{ background: 'var(--card-bg)', border: '1px solid var(--border-color)', borderRadius: '18px', padding: '2rem', marginBottom: '1.5rem', boxShadow: 'var(--shadow-color)' }}>
               <form onSubmit={handleCollect} className="login-form">
                 <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '1rem', marginBottom: '1rem' }}>
-                  <div className="form-group" style={{ margin: 0 }}>
+                  <div className="form-group" style={{ margin: 0, display: 'flex', flexDirection: 'column' }}>
                     <label style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.07em' }}>URL YouTube</label>
-                    <input type="url" value={url} onChange={e => setUrl(e.target.value)} placeholder="https://www.youtube.com/watch?v=..." required disabled={status?.is_running} style={{ marginTop: '0.4rem', background: 'var(--input-bg)' }} />
+                    <input type="url" value={url} onChange={e => setUrl(e.target.value)} placeholder="https://www.youtube.com/watch?v=..." required disabled={status?.is_running} style={{ marginTop: '0.4rem', background: 'var(--input-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-color)', padding: '0.8rem', borderRadius: '8px', fontSize: '0.95rem', boxSizing: 'border-box', height: '45px' }} />
                   </div>
-                  <div className="form-group" style={{ margin: 0 }}>
+                  <div className="form-group" style={{ margin: 0, display: 'flex', flexDirection: 'column' }}>
                     <label style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.07em' }}>Langue</label>
                     <select value={language} onChange={e => setLanguage(e.target.value)} required disabled={status?.is_running}
-                      style={{ marginTop: '0.4rem', width: '100%', padding: '0.8rem', borderRadius: '8px', background: 'var(--input-bg)', color: 'var(--text-color)', border: '1px solid var(--border-color)', fontSize: '0.95rem' }}>
+                      style={{ marginTop: '0.4rem', width: '100%', padding: '0.8rem', borderRadius: '8px', background: 'var(--input-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-color)', fontSize: '0.95rem', boxSizing: 'border-box', height: '45px' }}>
                       <option value="" disabled>Sélectionner...</option>
                       {languages.map(l => <option key={l.code} value={l.code}>{l.label}</option>)}
                     </select>
@@ -355,6 +376,24 @@ function AdminPanel({ token, apiUrl }) {
                     {error}
                   </div>
                 )}
+              </form>
+            </div>
+
+            {/* Gestion des langues */}
+            <div style={{ background: 'var(--card-bg)', border: '1px solid var(--border-color)', borderRadius: '18px', padding: '1.5rem 2rem', marginBottom: '1.5rem', boxShadow: 'var(--shadow-color)' }}>
+              <h3 style={{ margin: '0 0 1rem', fontSize: '1.1rem', fontWeight: 700, color: 'var(--text-primary)' }}>Ajouter une Langue</h3>
+              <form onSubmit={handleAddLanguage} style={{ display: 'flex', gap: '1rem', alignItems: 'flex-end' }}>
+                <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+                  <label style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.3rem' }}>Code (ex: myene)</label>
+                  <input type="text" value={newLangCode} onChange={e => setNewLangCode(e.target.value)} required style={{ padding: '0.7rem', borderRadius: '8px', border: '1px solid var(--border-color)', background: 'var(--input-bg)', color: 'var(--text-primary)' }} />
+                </div>
+                <div style={{ flex: 2, display: 'flex', flexDirection: 'column' }}>
+                  <label style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.3rem' }}>Libellé (ex: Myènè)</label>
+                  <input type="text" value={newLangLabel} onChange={e => setNewLangLabel(e.target.value)} required style={{ padding: '0.7rem', borderRadius: '8px', border: '1px solid var(--border-color)', background: 'var(--input-bg)', color: 'var(--text-primary)' }} />
+                </div>
+                <button type="submit" style={{ padding: '0.75rem 1.5rem', background: 'var(--accent-color)', color: '#fff', borderRadius: '8px', border: 'none', cursor: 'pointer', fontWeight: 600 }}>
+                  + Ajouter
+                </button>
               </form>
             </div>
 
