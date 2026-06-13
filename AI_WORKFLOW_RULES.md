@@ -160,4 +160,4 @@ git push origin --delete feat/nom-de-la-fonctionnalite
 
 ---
 
-*Dernière mise à jour : 13 Juin 2026 — Porteurs de projet : Gildas & Aryad (Pôle Technique & Innovation, CSGR-IA)*
+*Dernière mise à jour : Juin 2026 — Porteurs de projet : Gildas & Aryad (Pôle Technique & Innovation, CSGR-IA)*
