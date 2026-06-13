@@ -653,7 +653,10 @@ function App() {
   const [annotation, setAnnotation] = useState("")
   const [theme, setTheme] = useState('dark')
   const [isSaved, setIsSaved] = useState(false)
-  
+  // URL pre-signée S3 pour le lecteur audio — chargée à la demande depuis /segments/{id}/{seg}/audio
+  const [audioUrl, setAudioUrl] = useState(null)
+  const [audioLoading, setAudioLoading] = useState(false)
+
   const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000"
   const audioRef = useRef(null)
 
@@ -732,21 +735,43 @@ function App() {
 
   const fetchSegments = async (audioId) => {
     try {
-      const res = await fetch(`${API_URL}/segments?audio_id=${audioId}`, { headers: { Authorization: `Bearer ${token}` }})
+      // Endpoint correct : GET /segments/{audio_id} (RESEARCH_LOG Entrée 16)
+      const res = await fetch(`${API_URL}/segments/${audioId}`, { headers: { Authorization: `Bearer ${token}` }})
       if (res.ok) setSegments((await res.json()).segments)
     } catch (e) { console.error(e) }
   }
 
-  const handleSelectSegment = (seg) => {
+  const handleSelectSegment = async (seg) => {
     setActiveSegment(seg)
     setAnnotation(seg.annotated_text || "")
     setIsSaved(false)
-    setTimeout(() => {
-      if (audioRef.current) {
-        audioRef.current.load()
-        audioRef.current.play().catch(e => console.log("Lecture bloquée", e))
+    setAudioUrl(null)
+    setAudioLoading(true)
+    try {
+      // Récupération de la pre-signed URL S3 via l'endpoint dédié (expire 1h)
+      // Architecture Floci : aucun fichier audio n'est servi depuis la machine locale
+      const res = await fetch(
+        `${API_URL}/segments/${seg.audio_id || selectedAudio.audio_id}/${seg.segment_id}/audio`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      )
+      if (res.ok) {
+        const { url } = await res.json()
+        setAudioUrl(url)
+        // Déclencher la lecture après chargement de la nouvelle source
+        setTimeout(() => {
+          if (audioRef.current) {
+            audioRef.current.load()
+            audioRef.current.play().catch(e => console.log('Lecture auto bloquée (interaction requise)', e))
+          }
+        }, 80)
+      } else {
+        console.error('Impossible de charger l\'URL audio S3:', res.status)
       }
-    }, 50)
+    } catch (e) {
+      console.error('Erreur réseau lors de la récupération de l\'URL audio:', e)
+    } finally {
+      setAudioLoading(false)
+    }
   }
 
   const handleSubmit = async () => {
@@ -878,13 +903,40 @@ function App() {
                 </div>
 
                 <div className="player-card">
-                  <audio ref={audioRef} className="audio-controls" controls>
-                    <source src={`${API_URL}/audio/${selectedAudio.audio_id}#t=${activeSegment.start},${activeSegment.end}`} type="audio/wav" />
-                  </audio>
+                  {/* Lecteur audio — source = pre-signed URL S3 (Architecture Floci) */}
+                  {audioLoading ? (
+                    <div style={{
+                      display: 'flex', alignItems: 'center', gap: '0.75rem',
+                      padding: '1rem', background: 'rgba(102,126,234,0.08)',
+                      borderRadius: '10px', border: '1px solid rgba(102,126,234,0.2)'
+                    }}>
+                      <span style={{ animation: 'spin 1s linear infinite', display: 'inline-block', fontSize: '1.2rem' }}>⏳</span>
+                      <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Chargement du clip audio depuis S3...</span>
+                    </div>
+                  ) : audioUrl ? (
+                    <audio
+                      ref={audioRef}
+                      className="audio-controls"
+                      controls
+                      key={audioUrl}
+                      style={{ width: '100%' }}
+                    >
+                      <source src={audioUrl} type="audio/wav" />
+                      Votre navigateur ne supporte pas la lecture audio.
+                    </audio>
+                  ) : (
+                    <div style={{
+                      padding: '1rem', background: 'rgba(239,68,68,0.07)',
+                      borderRadius: '10px', border: '1px solid rgba(239,68,68,0.18)',
+                      fontSize: '0.85rem', color: '#fca5a5'
+                    }}>
+                      ⚠️ Audio non disponible — le clip n'a pas encore été uploadé sur S3 ou le pipeline n'est pas terminé.
+                    </div>
+                  )}
 
                   {activeSegment.whisper_text && (
                     <div className="whisper-hint">
-                      <span className="hint-label">IA Whisper (Phonétique / Bruit)</span>
+                      <span className="hint-label">IA Whisper (référence approximative)</span>
                       "{activeSegment.whisper_text}"
                     </div>
                   )}
