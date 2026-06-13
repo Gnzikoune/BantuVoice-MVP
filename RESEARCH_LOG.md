@@ -67,3 +67,13 @@ Conformément à la section **9.3 du Cadre Architectural**, ce document trace to
 - **Résolution :** 
   - Modification intégrale de l'interface admin (`App.jsx`) pour exploiter les variables CSS du `[data-theme='light']` et `[data-theme='dark']` (`var(--card-bg)`, etc.). 
   - Ajout d'une fonctionnalité de Suppression en cascade. Côté backend, une requête `DELETE /admin/audios/{id}` supprime l'enregistrement de l'audio (`Audios`), efface toutes ses occurrences segmentées (`Segments`), et ordonne à S3 de détruire le `.wav` lourd, maintenant l'hygiène de la base de données.
+
+## Entrée 12 : Goulot d'étranglement de l'inférence locale (Whisper)
+- **Date :** Juin 2026
+- **Problème / Limite Hardware :** Lors des tests système, le PI a remarqué que "l'analyse temporelle et découpage en segment prend du temps. Est-ce normal même pour une vidéo de 5 minutes ?". Oui, en l'état, l'exécution locale de `Whisper 'base'` monopolise le CPU et n'exploite pas d'accélération matérielle (CUDA), ce qui rend le processus de transcription phonétique excessivement lent.
+- **Résolution (Théorique) :** Pour un MVP, ce délai est documenté et affiché via le terminal interactif en temps réel pour rassurer l'utilisateur (affichage de "Chargement du modèle..."). Pour la V2 (Production), cette étape devra impérativement être asynchrone et déléguée à une infrastructure cloud spécialisée (ex: AWS SageMaker, Lambda ou un service EC2 avec GPU T4).
+
+## Entrée 13 : Incident de Troncature JSX (Crash Silencieux du Frontend)
+- **Date :** Juin 2026
+- **Problème / Bug :** Lors de la refonte du composant `AdminPanel` vers un design "Premium", le retour de code a été accidentellement tronqué, générant des balises non fermées (ex: `</tbody>` résiduelles) et supprimant les onglets "Ingestion" et "Bibliothèque" du DOM, sans faire crasher le compilateur Vite immédiatement.
+- **Résolution Scientifique :** Intervention chirurgicale avec l'outil de multi-remplacement plutôt que de générer à nouveau tout le fichier. Ensuite, pour garantir une intégrité parfaite de la syntaxe JSX (et l'ajout fluide du support Light/Dark), l'intégralité du composant a été réécrite et injectée proprement. Cet incident rappelle la nécessité de segmenter les composants React volumineux en sous-fichiers pour limiter les risques de corruption.
