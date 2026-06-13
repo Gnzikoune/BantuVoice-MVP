@@ -502,71 +502,75 @@ async def run_collection_pipeline(url: str, language: str, mode: str = "single")
                     _push_log(f"✅ Segmentation terminée pour {wav_name} (JSON introuvable pour résumé).")
                 await asyncio.sleep(0.5)
 
-        # Étape 3 : Upload vers S3 + Enregistrement DynamoDB
-        admin_task_status.update({
-            "step": "Étape 3 : Enregistrement dans la bibliothèque",
-            "progress": 80,
-            "message": "Upload S3 et indexation dans la base de données..."
-        })
-
-        json_files = glob.glob("data/raw/*.json")
-        dynamodb = get_dynamodb()
-        s3 = get_s3()
-
-        for json_path in json_files:
-            with open(json_path, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-
-            audio_id = data.get("source_id", os.path.basename(json_path).replace(".json", ""))
-            transcription = data.get("transcription", {})
-            segments = transcription.get("segments", [])
-
-            # Upload du WAV vers S3
-            wav_path = json_path.replace(".json", ".wav")
-            if os.path.exists(wav_path):
-                with open(wav_path, 'rb') as wav_f:
-                    s3.put_object(Bucket=S3_BUCKET, Key=f"audios/{audio_id}.wav", Body=wav_f.read())
-
-            # Enregistrement de l'audio dans DynamoDB (table Audios)
-            dynamodb.Table('Audios').put_item(Item={
-                "audio_id": audio_id,
-                "language": language,
-                "source_url": url,
-                "segment_count": Decimal(str(len(segments))),
-                "created_at": datetime.utcnow().isoformat(),
-                "title": data.get("title", audio_id)
+            # --- Étape 3 : Upload vers S3 + Enregistrement DynamoDB ---
+            _push_log("☁ Upload S3 et indexation dans la base de données...")
+            admin_task_status.update({
+                "step": "Étape 3 : Enregistrement dans la bibliothèque",
+                "progress": 80,
             })
 
-            # Enregistrement de chaque segment dans DynamoDB (table Segments)
-            for seg in segments:
-                dynamodb.Table('Segments').put_item(Item={
+            json_files = glob.glob("data/raw/*.json")
+            dynamodb = get_dynamodb()
+            s3 = get_s3()
+
+            for json_path in json_files:
+                with open(json_path, 'r', encoding='utf-8') as index_file:
+                    audio_data_raw = json.load(index_file)
+
+                audio_id = audio_data_raw.get("source_id", os.path.basename(json_path).replace(".json", ""))
+                transcription = audio_data_raw.get("transcription", {})
+                segments = transcription.get("segments", [])
+
+                # Upload du WAV vers S3
+                wav_path = json_path.replace(".json", ".wav")
+                if os.path.exists(wav_path):
+                    with open(wav_path, 'rb') as wav_f:
+                        s3.put_object(Bucket=S3_BUCKET, Key=f"audios/{audio_id}.wav", Body=wav_f.read())
+                    _push_log(f"  ↑ S3 : {os.path.basename(wav_path)} uploadé.")
+
+                # Enregistrement de l'audio dans DynamoDB (table Audios)
+                dynamodb.Table('Audios').put_item(Item={
                     "audio_id": audio_id,
-                    "segment_id": str(seg["id"]),
-                    "start": Decimal(str(seg["start"])),
-                    "end": Decimal(str(seg["end"])),
-                    "whisper_text": seg.get("text", ""),
-                    "annotations": {},
-                    "total_annotations": Decimal('0')
+                    "language": language,
+                    "source_url": url,
+                    "segment_count": Decimal(str(len(segments))),
+                    "created_at": datetime.utcnow().isoformat(),
+                    "title": audio_data_raw.get("title", audio_id)
                 })
 
-        admin_task_status.update({
-            "step": "✅ Terminé",
-            "progress": 100,
-            "message": f"Audio en langue '{language}' traité et disponible dans la bibliothèque."
-        })
+                # Enregistrement de chaque segment dans DynamoDB (table Segments)
+                for seg in segments:
+                    dynamodb.Table('Segments').put_item(Item={
+                        "audio_id": audio_id,
+                        "segment_id": str(seg["id"]),
+                        "start": Decimal(str(seg["start"])),
+                        "end": Decimal(str(seg["end"])),
+                        "whisper_text": seg.get("text", ""),
+                        "annotations": {},
+                        "total_annotations": Decimal('0')
+                    })
+                _push_log(f"✅ {audio_id} indexé — {len(segments)} segments dans DynamoDB.")
 
-    except Exception as e:
-        import traceback
-        err_msg = str(e) or traceback.format_exc()
-        print("ERREUR CRITIQUE:", traceback.format_exc())
-        admin_task_status.update({
-            "step": "❌ Erreur",
-            "message": f"Échec critique: {err_msg}",
-            "progress": 0
-        })
-    finally:
-        await asyncio.sleep(5)
-        admin_task_status["is_running"] = False
+            _push_log(f"✅ Pipeline terminé — langue '{language}' disponible dans la bibliothèque.")
+            admin_task_status.update({
+                "step": "✅ Terminé",
+                "progress": 100,
+                "message": f"Audio en langue '{language}' traité et disponible dans la bibliothèque."
+            })
+
+        except Exception as pipeline_err:
+            import traceback
+            err_detail = traceback.format_exc()
+            print("ERREUR CRITIQUE PIPELINE:", err_detail)
+            _push_log(f"❌ Erreur critique : {pipeline_err}")
+            admin_task_status.update({
+                "step": "❌ Erreur",
+                "progress": 0,
+                "message": f"Échec : {pipeline_err}"
+            })
+        finally:
+            await asyncio.sleep(5)
+            admin_task_status["is_running"] = False
 
 @app.delete("/admin/audios/{audio_id}")
 def delete_audio(audio_id: str, current_user: dict = Depends(get_current_user)):
