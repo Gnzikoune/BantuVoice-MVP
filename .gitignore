@@ -11,8 +11,11 @@ __pycache__/
 .Python
 
 # Données (Audio, Modèles, Corpus) - IMPORTANT pour ne pas saturer Git
+# Ces dossiers contiennent des fichiers binaires générés automatiquement.
+# Tout est stocké de façon permanente sur AWS S3 (Floci).
 data/raw/
 data/processed/
+data/segments/
 data/models/
 *.wav
 *.mp3
