@@ -26,3 +26,12 @@ services:
     depends_on:
       - backend
     restart: unless-stopped
+
+  floci:
+    image: hectorvent/floci:latest
+    container_name: bantuvoice-floci
+    ports:
+      - "4566:4566"
+    environment:
+      - FLOCI_AWS_REGION=eu-west-3
+    restart: unless-stopped

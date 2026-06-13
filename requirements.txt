@@ -7,5 +7,6 @@ tinydb
 pyjwt
 passlib
 bcrypt
+boto3
 python-multipart
 python-dotenv
