@@ -156,11 +156,11 @@ function AdminPanel({ token, apiUrl }) {
       {/* ── SIDEBAR ── */}
       <aside style={{
         width: '230px', flexShrink: 0, display: 'flex', flexDirection: 'column',
-        background: 'linear-gradient(180deg, rgba(88,28,135,0.22) 0%, rgba(0,0,0,0.35) 100%)',
-        borderRight: '1px solid rgba(139,92,246,0.15)',
+        background: 'var(--card-bg)',
+        borderRight: '1px solid var(--border-color)',
       }}>
         <div style={{ padding: '1.5rem 1.25rem 1rem' }}>
-          <p style={{ fontSize: '0.62rem', fontWeight: 800, letterSpacing: '0.18em', color: 'rgba(167,139,250,0.6)', textTransform: 'uppercase', margin: '0 0 1.5rem' }}>
+          <p style={{ fontSize: '0.62rem', fontWeight: 800, letterSpacing: '0.18em', color: 'var(--text-secondary)', textTransform: 'uppercase', margin: '0 0 1.5rem' }}>
             Espace Administrateur
           </p>
           {navItems.map(item => (
@@ -169,12 +169,12 @@ function AdminPanel({ token, apiUrl }) {
               width: '100%', padding: '0.72rem 0.9rem', marginBottom: '0.2rem',
               borderRadius: '10px', border: 'none', cursor: 'pointer', textAlign: 'left',
               background: activeTab === item.id
-                ? 'linear-gradient(135deg, rgba(139,92,246,0.28), rgba(59,130,246,0.18))'
+                ? 'var(--accent-color)'
                 : 'transparent',
-              color: activeTab === item.id ? '#e9d5ff' : 'rgba(255,255,255,0.4)',
+              color: activeTab === item.id ? '#ffffff' : 'var(--text-secondary)',
               fontWeight: activeTab === item.id ? 600 : 400,
               fontSize: '0.88rem',
-              boxShadow: activeTab === item.id ? 'inset 0 0 0 1px rgba(139,92,246,0.35)' : 'none',
+              boxShadow: activeTab === item.id ? '0 4px 12px var(--shadow-color)' : 'none',
               transition: 'all 0.2s ease',
             }}>
               <span style={{ fontSize: '1.1rem' }}>{item.icon}</span>
@@ -189,19 +189,19 @@ function AdminPanel({ token, apiUrl }) {
         {status?.is_running ? (
           <div style={{ margin: '1rem', padding: '1rem', background: 'rgba(59,130,246,0.1)', borderRadius: '12px', border: '1px solid rgba(59,130,246,0.2)' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
-              <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#60a5fa', display: 'inline-block', boxShadow: '0 0 8px #60a5fa', animation: 'blink 1.5s ease-in-out infinite' }}></span>
-              <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#60a5fa', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Pipeline actif</span>
+              <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#3b82f6', display: 'inline-block', boxShadow: '0 0 8px #3b82f6', animation: 'blink 1.5s ease-in-out infinite' }}></span>
+              <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#3b82f6', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Pipeline actif</span>
             </div>
-            <div style={{ fontSize: '0.76rem', color: 'rgba(255,255,255,0.5)', marginBottom: '0.5rem', lineHeight: 1.4 }}>{status.step}</div>
-            <div style={{ height: '3px', background: 'rgba(255,255,255,0.08)', borderRadius: '2px', overflow: 'hidden' }}>
+            <div style={{ fontSize: '0.76rem', color: 'var(--text-secondary)', marginBottom: '0.5rem', lineHeight: 1.4 }}>{status.step}</div>
+            <div style={{ height: '3px', background: 'rgba(0,0,0,0.08)', borderRadius: '2px', overflow: 'hidden' }}>
               <div style={{ height: '100%', width: `${status.progress}%`, background: 'linear-gradient(90deg,#3b82f6,#8b5cf6)', transition: 'width 0.5s ease' }}></div>
             </div>
-            <div style={{ textAlign: 'right', fontSize: '0.7rem', color: '#60a5fa', marginTop: '0.25rem' }}>{status.progress}%</div>
+            <div style={{ textAlign: 'right', fontSize: '0.7rem', color: '#3b82f6', marginTop: '0.25rem' }}>{status.progress}%</div>
           </div>
         ) : (
           <div style={{ margin: '1rem', padding: '0.75rem 1rem', background: 'rgba(16,185,129,0.07)', borderRadius: '10px', border: '1px solid rgba(16,185,129,0.18)' }}>
-            <div style={{ fontSize: '0.72rem', color: '#34d399', fontWeight: 600 }}>● Système opérationnel</div>
-            <div style={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.3)', marginTop: '0.2rem' }}>DynamoDB · S3 · Whisper</div>
+            <div style={{ fontSize: '0.72rem', color: 'var(--success-color)', fontWeight: 600 }}>● Système opérationnel</div>
+            <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', marginTop: '0.2rem' }}>DynamoDB · S3 · Whisper</div>
           </div>
         )}
       </aside>
@@ -419,7 +419,7 @@ function AdminPanel({ token, apiUrl }) {
                   {audios.length} audio{audios.length !== 1 ? 's' : ''} · {totalSegments} segments indexés dans DynamoDB
                 </p>
               </div>
-              <button className="btn-submit" onClick={() => setActiveTab('ingest')} style={{ padding: '0.6rem 1.2rem', fontSize: '0.85rem' }}>
+              <button onClick={() => setActiveTab('ingest')} style={{ padding: '0.6rem 1.2rem', fontSize: '0.85rem', background: 'var(--accent-color)', color: '#fff', borderRadius: '8px', border: 'none', cursor: 'pointer', fontWeight: 600 }}>
                 ⊕ Ajouter un audio
               </button>
             </div>
@@ -428,7 +428,9 @@ function AdminPanel({ token, apiUrl }) {
               <div style={{ background: 'var(--card-bg)', border: '1px dashed var(--border-color)', borderRadius: '18px', padding: '4rem', textAlign: 'center', boxShadow: 'var(--shadow-color)' }}>
                 <div style={{ fontSize: '4rem', marginBottom: '1rem', opacity: 0.5 }}>📭</div>
                 <p style={{ color: 'var(--text-secondary)', margin: '0 0 1.5rem' }}>La bibliothèque est vide.</p>
-                <button className="btn-submit" onClick={() => setActiveTab('ingest')}>⊕ Première Ingestion</button>
+                <button onClick={() => setActiveTab('ingest')} style={{ padding: '0.7rem 1.5rem', background: 'var(--accent-color)', color: '#fff', borderRadius: '8px', border: 'none', cursor: 'pointer', fontWeight: 600, display: 'inline-block' }}>
+                  ⊕ Première Ingestion
+                </button>
               </div>
             ) : (
               <div style={{ background: 'var(--card-bg)', border: '1px solid var(--border-color)', borderRadius: '18px', overflow: 'hidden', boxShadow: 'var(--shadow-color)' }}>
