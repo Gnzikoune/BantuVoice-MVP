@@ -380,12 +380,13 @@ async def run_collection_pipeline(url: str, language: str):
     3. Upload S3 + insertion DynamoDB
     """
     try:
+        import subprocess
         # Étape 1 : Téléchargement
-        process = await asyncio.create_subprocess_shell(
+        await asyncio.to_thread(
+            subprocess.run,
             f"venv\\Scripts\\python.exe src/collecte/downloader.py --url \"{url}\"",
-            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+            shell=True, check=True
         )
-        stdout, stderr = await process.communicate()
 
         # Étape 2 : Transcription/Segmentation
         admin_task_status.update({
@@ -396,11 +397,11 @@ async def run_collection_pipeline(url: str, language: str):
 
         wav_files = glob.glob("data/raw/*.wav")
         for wav in wav_files:
-            proc_vad = await asyncio.create_subprocess_shell(
+            await asyncio.to_thread(
+                subprocess.run,
                 f"venv\\Scripts\\python.exe src/transcription/transcriber.py --audio \"{wav}\"",
-                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+                shell=True, check=True
             )
-            await proc_vad.communicate()
 
         # Étape 3 : Upload vers S3 + Enregistrement DynamoDB
         admin_task_status.update({
@@ -456,9 +457,12 @@ async def run_collection_pipeline(url: str, language: str):
         })
 
     except Exception as e:
+        import traceback
+        err_msg = str(e) or traceback.format_exc()
+        print("ERREUR CRITIQUE:", traceback.format_exc())
         admin_task_status.update({
             "step": "❌ Erreur",
-            "message": f"Échec critique: {str(e)}",
+            "message": f"Échec critique: {err_msg}",
             "progress": 0
         })
     finally:
