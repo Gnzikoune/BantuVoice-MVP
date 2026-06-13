@@ -483,6 +483,38 @@ async def run_collection_pipeline(url: str, language: str):
         await asyncio.sleep(5)
         admin_task_status["is_running"] = False
 
+@app.delete("/admin/audios/{audio_id}")
+def delete_audio(audio_id: str, current_user: dict = Depends(get_current_user)):
+    """Supprime un audio, tous ses segments associés, et le fichier S3."""
+    if current_user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Accès refusé. Rôle administrateur requis.")
+    
+    dynamodb = get_dynamodb()
+    s3 = get_s3()
+    
+    try:
+        # 1. Supprimer l'audio de la table Audios
+        dynamodb.Table('Audios').delete_item(Key={'audio_id': audio_id})
+        
+        # 2. Supprimer tous les segments associés
+        response = dynamodb.Table('Segments').query(
+            KeyConditionExpression=boto3.dynamodb.conditions.Key('audio_id').eq(audio_id)
+        )
+        for segment in response.get('Items', []):
+            dynamodb.Table('Segments').delete_item(
+                Key={'audio_id': audio_id, 'segment_id': segment['segment_id']}
+            )
+            
+        # 3. Supprimer le fichier de S3
+        try:
+            s3.delete_object(Bucket=S3_BUCKET, Key=f"audios/{audio_id}.wav")
+        except Exception as e:
+            print(f"Erreur lors de la suppression S3 pour {audio_id}: {e}")
+            
+        return {"status": "success", "message": f"Audio {audio_id} et ses segments ont été supprimés."}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erreur lors de la suppression: {str(e)}")
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("server:app", host="127.0.0.1", port=8000, reload=True)

@@ -60,3 +60,10 @@ Conformément à la section **9.3 du Cadre Architectural**, ce document trace to
 - **Date :** Juin 2026
 - **Problème / Échec Critique :** Lors du lancement de la collecte depuis l'interface d'administration web, le backend FastAPI déclenchait une erreur `NotImplementedError` instantanée. Cela est dû au fait qu'Uvicorn utilise la boucle `SelectorEventLoop` par défaut sous Windows, laquelle ne supporte pas `asyncio.create_subprocess_shell`.
 - **Résolution :** Modification du pipeline de traitement (`server.py`) pour déléguer les appels `subprocess.run` synchrones dans un thread séparé via `asyncio.to_thread`. Cela permet de garder l'API asynchrone sans bloquer la boucle d'événements, tout en esquivant l'incompatibilité Windows.
+
+## Entrée 11 : Intégrité des données et Theme Toggle Dynamique
+- **Date :** Juin 2026
+- **Problème / UX :** Le panel d'administration premium avait des couleurs hardcodées (mode sombre strict), cassant l'expérience pour les utilisateurs en mode clair. Par ailleurs, les erreurs d'ingestion ou audios invalides polluaient la base (pas de moyen de suppression simple).
+- **Résolution :** 
+  - Modification intégrale de l'interface admin (`App.jsx`) pour exploiter les variables CSS du `[data-theme='light']` et `[data-theme='dark']` (`var(--card-bg)`, etc.). 
+  - Ajout d'une fonctionnalité de Suppression en cascade. Côté backend, une requête `DELETE /admin/audios/{id}` supprime l'enregistrement de l'audio (`Audios`), efface toutes ses occurrences segmentées (`Segments`), et ordonne à S3 de détruire le `.wav` lourd, maintenant l'hygiène de la base de données.
