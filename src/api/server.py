@@ -335,8 +335,15 @@ def _has_annotation(dynamodb, audio_id: str, segment_id: str, username: str) -> 
 
 @app.get("/admin/languages")
 def admin_get_languages(current_user: dict = Depends(require_admin)):
-    """Retourne la liste des langues pour le formulaire d'administration."""
-    return {"languages": SUPPORTED_LANGUAGES}
+    """Retourne la liste des langues pour le formulaire d'administration depuis DynamoDB."""
+    dynamodb = get_dynamodb()
+    try:
+        response = dynamodb.Table('Languages').scan()
+        languages = response.get('Items', [])
+        languages.sort(key=lambda x: x['label'])
+        return {"languages": languages}
+    except Exception:
+        return {"languages": []}
 
 @app.get("/admin/audios")
 def admin_get_audios(current_user: dict = Depends(require_admin)):
