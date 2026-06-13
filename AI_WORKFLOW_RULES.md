@@ -101,9 +101,62 @@
 
 ## §8. Hygiène du Dépôt
 
-- **`.gitignore` strict :** Les fichiers `venv/`, `data/raw/`, `__pycache__/`, `*.env`, `node_modules/` ne doivent jamais être commités.
-- **Branches de travail :** Tout développement actif se fait sur une branche dédiée (ex: `feature/ma-fonctionnalite`). On ne pousse jamais directement sur `main`.
+- **`.gitignore` strict :** Les fichiers `venv/`, `data/raw/`, `data/segments/`, `__pycache__/`, `*.env`, `node_modules/` ne doivent jamais être commités.
 - **Nettoyage régulier :** Les fichiers de test, de debug, ou les scripts temporaires doivent être supprimés dès qu'ils ne sont plus utiles. Un dépôt propre = un projet professionnel.
+
+---
+
+## §9. Stratégie de Branches Git (Feature Branch Workflow)
+
+> **Règle fondamentale :** Chaque fonctionnalité, correction, ou amélioration = une branche dédiée. On ne travaille jamais directement sur `main`.
+
+### Convention de nommage des branches
+
+| Préfixe | Usage | Exemple |
+|---------|-------|---------|
+| `feat/` | Nouvelle fonctionnalité | `feat/s3-presigned-urls-annotateurs` |
+| `fix/` | Correction de bug | `fix/syntaxerror-pipeline-etape3` |
+| `refactor/` | Réécriture sans changement fonctionnel | `refactor/whisper-vers-faster-whisper` |
+| `docs/` | Documentation uniquement | `docs/floci-aws-cli` |
+| `chore/` | Maintenance, dépendances | `chore/update-requirements` |
+| `release/` | Préparation d'une release | `release/v0.1.0-mvp` |
+
+### Cycle de vie d'une branche
+
+```
+main
+ └── feat/ma-fonctionnalite        ← créer la branche
+       │── commit 1 (feat: ...)    ← travailler en micro-commits
+       │── commit 2 (fix: ...)
+       └── PR / merge → main       ← fusionner quand terminé et testé
+           └── supprimer la branche après merge
+```
+
+### Commandes de référence
+
+```bash
+# Créer et basculer sur une nouvelle branche
+git checkout -b feat/nom-de-la-fonctionnalite
+
+# Pousser la branche sur GitHub
+git push origin feat/nom-de-la-fonctionnalite
+
+# Fusionner dans main (après validation)
+git checkout main
+git merge --no-ff feat/nom-de-la-fonctionnalite
+git push origin main
+
+# Supprimer la branche locale et distante après merge
+git branch -d feat/nom-de-la-fonctionnalite
+git push origin --delete feat/nom-de-la-fonctionnalite
+```
+
+### Règles de protection de `main`
+
+- `main` = code stable, **toujours déployable**.
+- Jamais de `git push --force` sur `main`.
+- Tout merge sur `main` doit passer par un commit de merge explicite (`--no-ff`).
+- Si une modification urgente est nécessaire directement : créer une branche `fix/nom-du-bug` et merger rapidement.
 
 ---
 
