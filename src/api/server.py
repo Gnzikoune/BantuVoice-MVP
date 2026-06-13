@@ -40,17 +40,8 @@ AWS_ENDPOINT_URL = os.getenv("AWS_ENDPOINT_URL", "http://localhost:4566")
 AWS_REGION = os.getenv("AWS_REGION", "eu-west-3")
 S3_BUCKET = "bantuvoice-audios"
 
-# Langues gabonaises supportées (liste extensible)
-SUPPORTED_LANGUAGES = [
-    {"code": "fang", "label": "Fang"},
-    {"code": "punu", "label": "Punu"},
-    {"code": "nzebi", "label": "Nzebi"},
-    {"code": "myene", "label": "Myene"},
-    {"code": "teke", "label": "Teke"},
-    {"code": "obamba", "label": "Obamba"},
-    {"code": "kota", "label": "Kota"},
-    {"code": "autre", "label": "Autre"},
-]
+# Les langues sont désormais gérées dynamiquement via DynamoDB (Table 'Languages').
+# SUPPORTED_LANGUAGES a été retiré.
 
 def get_dynamodb():
     """Retourne un client DynamoDB connecté à Floci (ou au vrai AWS en prod)."""
@@ -99,17 +90,26 @@ def init_db():
     ]
 
     for u in default_users:
-        try:
-            users_table.get_item(Key={"username": u["username"]})["Item"]
-            print(f"Utilisateur '{u['username']}' existe déjà.")
-        except KeyError:
-            print(f"Création de l'utilisateur '{u['username']}'...")
-            users_table.put_item(Item={
-                **u,
-                "hashed_password": get_password_hash(DEFAULT_PASSWORD)
-            })
-        except Exception as e:
-            print(f"Erreur init_db pour '{u['username']}': {e}")
+        if 'Item' not in users_table.get_item(Key={"username": u["username"]}):
+            u["hashed_password"] = get_password_hash(DEFAULT_PASSWORD)
+            users_table.put_item(Item=u)
+            print(f"Utilisateur {u['username']} créé avec le mot de passe par défaut.")
+
+    # Seed initial des langues
+    lang_table = dynamodb.Table('Languages')
+    if lang_table.scan()['Count'] == 0:
+        default_langs = [
+            {"code": "fang", "label": "Fang"},
+            {"code": "punu", "label": "Punu"},
+            {"code": "nzebi", "label": "Nzebi"},
+            {"code": "myene", "label": "Myene"},
+            {"code": "teke", "label": "Teke"},
+            {"code": "obamba", "label": "Obamba"},
+            {"code": "kota", "label": "Kota"}
+        ]
+        for lang in default_langs:
+            lang_table.put_item(Item=lang)
+        print("Langues par défaut insérées.")
 
 try:
     init_db()
@@ -222,8 +222,16 @@ async def read_users_me(current_user: dict = Depends(get_current_user)):
 
 @app.get("/languages")
 def get_languages():
-    """Retourne la liste des langues gabonaises supportées par le système."""
-    return {"languages": SUPPORTED_LANGUAGES}
+    """Retourne la liste des langues gabonaises depuis DynamoDB."""
+    dynamodb = get_dynamodb()
+    try:
+        response = dynamodb.Table('Languages').scan()
+        languages = response.get('Items', [])
+        # Trier par label
+        languages.sort(key=lambda x: x['label'])
+        return {"languages": languages}
+    except Exception as e:
+        return {"languages": []}
 
 @app.get("/audios")
 def get_audios(language: Optional[str] = None, current_user: dict = Depends(get_current_user)):
@@ -327,8 +335,15 @@ def _has_annotation(dynamodb, audio_id: str, segment_id: str, username: str) -> 
 
 @app.get("/admin/languages")
 def admin_get_languages(current_user: dict = Depends(require_admin)):
-    """Retourne la liste des langues pour le formulaire d'administration."""
-    return {"languages": SUPPORTED_LANGUAGES}
+    """Retourne la liste des langues pour le formulaire d'administration depuis DynamoDB."""
+    dynamodb = get_dynamodb()
+    try:
+        response = dynamodb.Table('Languages').scan()
+        languages = response.get('Items', [])
+        languages.sort(key=lambda x: x['label'])
+        return {"languages": languages}
+    except Exception:
+        return {"languages": []}
 
 @app.get("/admin/audios")
 def admin_get_audios(current_user: dict = Depends(require_admin)):
@@ -353,8 +368,14 @@ async def admin_collect(payload: AdminCollectPayload, current_user: dict = Depen
     if admin_task_status["is_running"]:
         raise HTTPException(status_code=400, detail="Une tâche est déjà en cours.")
 
-    # Validation de la langue
-    valid_codes = [l["code"] for l in SUPPORTED_LANGUAGES]
+    # Validation de la langue depuis DynamoDB
+    dynamodb = get_dynamodb()
+    try:
+        lang_response = dynamodb.Table('Languages').scan()
+        valid_codes = [item['code'] for item in lang_response.get('Items', [])]
+    except Exception:
+        valid_codes = []
+    
     if payload.language not in valid_codes:
         raise HTTPException(status_code=400, detail=f"Langue invalide. Codes valides: {valid_codes}")
 
@@ -380,12 +401,13 @@ async def run_collection_pipeline(url: str, language: str):
     3. Upload S3 + insertion DynamoDB
     """
     try:
+        import subprocess
         # Étape 1 : Téléchargement
-        process = await asyncio.create_subprocess_shell(
+        await asyncio.to_thread(
+            subprocess.run,
             f"venv\\Scripts\\python.exe src/collecte/downloader.py --url \"{url}\"",
-            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+            shell=True, check=True
         )
-        stdout, stderr = await process.communicate()
 
         # Étape 2 : Transcription/Segmentation
         admin_task_status.update({
@@ -396,11 +418,25 @@ async def run_collection_pipeline(url: str, language: str):
 
         wav_files = glob.glob("data/raw/*.wav")
         for wav in wav_files:
-            proc_vad = await asyncio.create_subprocess_shell(
+            # 1. Mise à jour de l'UI pour informer l'utilisateur de ce qui se passe sous le capot
+            admin_task_status.update({
+                "message": f"Chargement du modèle Whisper 'base' en mémoire...\nTranscription en cours pour : {wav}"
+            })
+            
+            # 2. Exécution asynchrone sécurisée du transcripteur
+            await asyncio.to_thread(
+                subprocess.run,
                 f"venv\\Scripts\\python.exe src/transcription/transcriber.py --audio \"{wav}\"",
-                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+                shell=True, check=True
             )
-            await proc_vad.communicate()
+            
+            # 3. Notification de succès pour ce fichier spécifique
+            json_path = wav.replace('.wav', '.json')
+            admin_task_status.update({
+                "message": f"[SUCCÈS] Transcription terminée et JSON mis à jour : {json_path}"
+            })
+            # Petite pause pour que le message soit lisible sur le frontend
+            await asyncio.sleep(1)
 
         # Étape 3 : Upload vers S3 + Enregistrement DynamoDB
         admin_task_status.update({
@@ -456,14 +492,72 @@ async def run_collection_pipeline(url: str, language: str):
         })
 
     except Exception as e:
+        import traceback
+        err_msg = str(e) or traceback.format_exc()
+        print("ERREUR CRITIQUE:", traceback.format_exc())
         admin_task_status.update({
             "step": "❌ Erreur",
-            "message": f"Échec critique: {str(e)}",
+            "message": f"Échec critique: {err_msg}",
             "progress": 0
         })
     finally:
         await asyncio.sleep(5)
         admin_task_status["is_running"] = False
+
+@app.delete("/admin/audios/{audio_id}")
+def delete_audio(audio_id: str, current_user: dict = Depends(get_current_user)):
+    """Supprime un audio, tous ses segments associés, et le fichier S3."""
+    if current_user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Accès refusé. Rôle administrateur requis.")
+    
+    dynamodb = get_dynamodb()
+    s3 = get_s3()
+    
+    try:
+        # 1. Supprimer l'audio de la table Audios
+        dynamodb.Table('Audios').delete_item(Key={'audio_id': audio_id})
+        
+        # 2. Supprimer tous les segments associés
+        response = dynamodb.Table('Segments').query(
+            KeyConditionExpression=boto3.dynamodb.conditions.Key('audio_id').eq(audio_id)
+        )
+        for segment in response.get('Items', []):
+            dynamodb.Table('Segments').delete_item(
+                Key={'audio_id': audio_id, 'segment_id': segment['segment_id']}
+            )
+            
+        # 3. Supprimer le fichier de S3
+        try:
+            s3.delete_object(Bucket=S3_BUCKET, Key=f"audios/{audio_id}.wav")
+        except Exception as e:
+            print(f"Erreur lors de la suppression S3 pour {audio_id}: {e}")
+            
+        return {"status": "success", "message": f"Audio {audio_id} et ses segments ont été supprimés."}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erreur lors de la suppression: {str(e)}")
+
+@app.post("/admin/languages")
+def add_language(data: dict, current_user: dict = Depends(get_current_user)):
+    """Ajoute une nouvelle langue (admin uniquement)."""
+    if current_user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Accès refusé.")
+    code = data.get("code")
+    label = data.get("label")
+    if not code or not label:
+        raise HTTPException(status_code=400, detail="code et label requis.")
+    
+    dynamodb = get_dynamodb()
+    dynamodb.Table('Languages').put_item(Item={"code": code.lower(), "label": label})
+    return {"status": "success", "message": "Langue ajoutée."}
+
+@app.delete("/admin/languages/{code}")
+def delete_language(code: str, current_user: dict = Depends(get_current_user)):
+    """Supprime une langue."""
+    if current_user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Accès refusé.")
+    dynamodb = get_dynamodb()
+    dynamodb.Table('Languages').delete_item(Key={'code': code})
+    return {"status": "success"}
 
 if __name__ == "__main__":
     import uvicorn

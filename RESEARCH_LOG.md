@@ -21,6 +21,17 @@ Conformément à la section **9.3 du Cadre Architectural**, ce document trace to
 - **Problème / Échec :** Lors des premières étapes (Collecte et Transcription), tout le code a été commité directement sur la branche principale (`main`), ce qui représente une mauvaise pratique de développement collaboratif.
 - **Résolution :** Prise de conscience par l'équipe et changement de stratégie en cours de route. Création de la branche `feature/plateforme-annotation` pour isoler le développement complexe de l'Étape 03 avant son déploiement.
 
+## Entrée 14 : Gestion dynamique des langues et Corrections UI
+- **Date :** Juin 2026
+- **Problème / UX :** La liste des langues était hardcodée (`SUPPORTED_LANGUAGES`) incluant un "Autre" statique. Des problèmes de rendu (scroll inutile, espace vide, select de mauvaise dimension et couleurs inadaptées en mode clair) pénalisaient le Dashboard.
+- **Hypothèse :** La migration vers une gestion DB (DynamoDB `Languages`) offre de la flexibilité à l'admin. Les problèmes UI provenaient du CSS mal ajusté sur flex-box et des styles inline non-liés aux variables CSS.
+- **Expérimentation / Code :**
+  1. Création de la table `Languages` dans DynamoDB via `init_aws.py` et ajout des endpoints POST/DELETE dans `server.py`.
+  2. Suppression de la liste statique et initialisation (seed) de 7 langues gabonaises (sans "Autre").
+  3. UI : Ajout d'un minHeight: 0 sur le conteneur flex `AdminPanel` pour éviter l'overflow du body. Réduction de la marge au-dessus du "Tableau de Bord". Ajustements des inputs `select` (color: var(--text-primary)).
+  4. Ajout d'un formulaire pour l'admin permettant la création de nouvelles langues à chaud.
+- **Résolution :** L'UI est parfaitement alignée, et l'architecture "Langues" devient véritablement extensible sans requérir de déploiements supplémentaires.
+
 ## Entrée 03 : Le Pivot "VAD" (Voice Activity Detection)
 - **Date :** Juin 2026
 - **Problème / Échec :** Lors des premiers tests de transcription sur une vidéo YouTube en langue Fang, le modèle Whisper a produit des hallucinations sévères. Bien que contraint par un prompt phonétique français (`--language "fr"`), l'IA a généré des mots français incohérents. Le WER brut (Word Error Rate) avoisinait les 100%.
@@ -50,3 +61,30 @@ Conformément à la section **9.3 du Cadre Architectural**, ce document trace to
 - **Date :** Juin 2026
 - **Problème / Bug UI :** L'interface générait un scroll global de la page web, ce qui cachait le header et le bouton de déconnexion lorsque le linguiste défilait vers le bas.
 - **Résolution :** Modification du CSS pour adopter une architecture "Desktop-like" (`height: 100vh`, `overflow: hidden`). Seuls les panneaux latéraux peuvent désormais défiler.
+
+## Entrée 09 : Architecture Cloud-Native (Floci.io MVP)
+- **Date :** Juin 2026
+- **Problème / Limite :** Le stockage local (TinyDB + fichiers audio sur disque) ne garantissait pas la scalabilité pour 10 000+ audios, et empêchait de tester le code en conditions cloud (AWS).
+- **Résolution :** Déploiement de l'émulateur AWS local **Floci.io** via Docker. Les fichiers audio sont désormais stockés dans `Amazon S3` et les métadonnées/annotations dans `Amazon DynamoDB`. Le backend FastAPI a été refondu. Note sur l'image Docker : les registres GitHub/ECR publics contenant des versions obsolètes/privées de Floci ont échoué, l'image `hectorvent/floci:latest` depuis le Docker Hub s'est avérée être la version officielle et opérationnelle.
+
+## Entrée 10 : Incompatibilité Uvicorn & Sous-processus sous Windows
+- **Date :** Juin 2026
+- **Problème / Échec Critique :** Lors du lancement de la collecte depuis l'interface d'administration web, le backend FastAPI déclenchait une erreur `NotImplementedError` instantanée. Cela est dû au fait qu'Uvicorn utilise la boucle `SelectorEventLoop` par défaut sous Windows, laquelle ne supporte pas `asyncio.create_subprocess_shell`.
+- **Résolution :** Modification du pipeline de traitement (`server.py`) pour déléguer les appels `subprocess.run` synchrones dans un thread séparé via `asyncio.to_thread`. Cela permet de garder l'API asynchrone sans bloquer la boucle d'événements, tout en esquivant l'incompatibilité Windows.
+
+## Entrée 11 : Intégrité des données et Theme Toggle Dynamique
+- **Date :** Juin 2026
+- **Problème / UX :** Le panel d'administration premium avait des couleurs hardcodées (mode sombre strict), cassant l'expérience pour les utilisateurs en mode clair. Par ailleurs, les erreurs d'ingestion ou audios invalides polluaient la base (pas de moyen de suppression simple).
+- **Résolution :** 
+  - Modification intégrale de l'interface admin (`App.jsx`) pour exploiter les variables CSS du `[data-theme='light']` et `[data-theme='dark']` (`var(--card-bg)`, etc.). 
+  - Ajout d'une fonctionnalité de Suppression en cascade. Côté backend, une requête `DELETE /admin/audios/{id}` supprime l'enregistrement de l'audio (`Audios`), efface toutes ses occurrences segmentées (`Segments`), et ordonne à S3 de détruire le `.wav` lourd, maintenant l'hygiène de la base de données.
+
+## Entrée 12 : Goulot d'étranglement de l'inférence locale (Whisper)
+- **Date :** Juin 2026
+- **Problème / Limite Hardware :** Lors des tests système, le PI a remarqué que "l'analyse temporelle et découpage en segment prend du temps. Est-ce normal même pour une vidéo de 5 minutes ?". Oui, en l'état, l'exécution locale de `Whisper 'base'` monopolise le CPU et n'exploite pas d'accélération matérielle (CUDA), ce qui rend le processus de transcription phonétique excessivement lent.
+- **Résolution (Théorique) :** Pour un MVP, ce délai est documenté et affiché via le terminal interactif en temps réel pour rassurer l'utilisateur (affichage de "Chargement du modèle..."). Pour la V2 (Production), cette étape devra impérativement être asynchrone et déléguée à une infrastructure cloud spécialisée (ex: AWS SageMaker, Lambda ou un service EC2 avec GPU T4).
+
+## Entrée 13 : Incident de Troncature JSX (Crash Silencieux du Frontend)
+- **Date :** Juin 2026
+- **Problème / Bug :** Lors de la refonte du composant `AdminPanel` vers un design "Premium", le retour de code a été accidentellement tronqué, générant des balises non fermées (ex: `</tbody>` résiduelles) et supprimant les onglets "Ingestion" et "Bibliothèque" du DOM, sans faire crasher le compilateur Vite immédiatement.
+- **Résolution Scientifique :** Intervention chirurgicale avec l'outil de multi-remplacement plutôt que de générer à nouveau tout le fichier. Ensuite, pour garantir une intégrité parfaite de la syntaxe JSX (et l'ajout fluide du support Light/Dark), l'intégralité du composant a été réécrite et injectée proprement. Cet incident rappelle la nécessité de segmenter les composants React volumineux en sous-fichiers pour limiter les risques de corruption.

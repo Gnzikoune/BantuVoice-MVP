@@ -1,153 +1,160 @@
-# BantuVoice 🌍🎙️
+<div align="center">
+  <h1>BantuVoice 🌍🎙️</h1>
+  <p><strong>Initiative nationale de données linguistiques pour l'IA — CSGR-IA</strong></p>
+  <p><em>L'Intelligence Artificielle · pour l'Afrique · par l'Afrique</em></p>
 
-**Initiative nationale de données linguistiques pour l'IA — CSGR-IA**
-
-*L'Intelligence Artificielle · pour l'Afrique · par l'Afrique · portée par le CSGR-IA*
+  <p>
+    <img src="https://img.shields.io/badge/Python-3.10+-blue.svg" alt="Python Version" />
+    <img src="https://img.shields.io/badge/React-18.x-61dafb.svg" alt="React" />
+    <img src="https://img.shields.io/badge/FastAPI-0.100+-009688.svg" alt="FastAPI" />
+    <img src="https://img.shields.io/badge/Database-DynamoDB%20(Floci)-4053D6.svg" alt="DynamoDB" />
+    <img src="https://img.shields.io/badge/Storage-Amazon%20S3%20(Floci)-569A31.svg" alt="S3" />
+    <img src="https://img.shields.io/badge/Status-MVP%20Actif-success.svg" alt="Status" />
+  </p>
+</div>
 
 ---
 
-## 📌 Contexte du Projet
-88% des langues africaines sont absentes de l'IA mondiale. Les langues gabonaises (Fang, Punu, Obamba, etc.) n'existent dans aucun modèle comme Whisper ou GPT, faute de données structurées.
+## 📑 Table des Matières
+- [À propos du projet](#-à-propos-du-projet)
+- [Fonctionnalités Principales](#-fonctionnalités-principales)
+- [Architecture & Flux de Travail](#-architecture--flux-de-travail)
+- [Prérequis & Installation](#-prérequis--installation)
+- [Utilisation](#-utilisation)
+- [Documentation API](#-documentation-api)
+- [Éthique et Souveraineté](#-éthique-et-souveraineté)
+- [Contribuer](#-contribuer)
+
+---
+
+## 📌 À propos du projet
+88% des langues africaines sont absentes de l'IA mondiale. Les langues gabonaises (Fang, Punu, Obamba, Myènè, etc.) n'existent dans aucun modèle comme Whisper ou GPT, faute de données structurées.
 
 **BantuVoice** est la première infrastructure souveraine de données linguistiques d'Afrique centrale. L'objectif est de collecter l'audio existant (traditions orales, chaînes YouTube comme *Dumwénu TV*), de le transcrire par IA, et de le valider via des locuteurs natifs pour créer un corpus de très haute qualité au standard Hugging Face.
 
 ---
 
-## 🏗️ Architecture Technique (Le Pipeline)
+## ✨ Fonctionnalités Principales
 
-Le projet est divisé en trois modules autonomes :
-
-1. **Étape 01 : Collecte Automatisée** `(EN COURS)`
-   - Outil : `yt-dlp` (avec post-processing `ffmpeg`).
-   - Rôle : Télécharger massivement l'audio depuis des sources ciblées au format imposé par les modèles ASR (`WAV`, `16kHz`, `mono`).
-   - Métadonnées : Extraction automatique en JSON.
-
-2. **Étape 02 : Segmentation Audio par IA (Whisper VAD)** `(TERMINÉ)`
-   - Outil : `Whisper` (OpenAI).
-   - Rôle Scientifique : Les langues gabonaises n'étant pas supportées nativement par l'IA, Whisper est utilisé *exclusivement* comme outil de segmentation spatio-temporelle (VAD - Voice Activity Detection). Il découpe intelligemment l'audio en courts segments horodatés (sans altérer le sens), préparant le terrain pour l'annotation humaine depuis une base propre.
-
-3. **Étape 03 : Validation Scientifique (Double Annotation)** `(MVP TERMINÉ)`
-   - Stack : `React.js` (Frontend), `FastAPI` (Backend), `TinyDB` (Base de données locale de transition), `JWT` (Sécurité).
-   - Rôle : Interface web sécurisée imposant un protocole de "Double Annotation en aveugle". Deux linguistes traduisent le même segment sans voir le travail de l'autre, permettant le calcul du taux d'accord inter-annotateurs (ex: Cohen's Kappa) exigé par les standards internationaux.
-
-4. **Étape 04 : Export et Publication (Hugging Face)** `(À VENIR)`
-   - Format : `Apache Parquet` + `Dataset Card`.
-   - Rôle : Une fois le volume cible atteint, un script extraira les segments doublement validés de la base de données pour générer le corpus final publiable.
+- 📥 **Pipeline d'Ingestion Automatisé** : Téléchargement direct depuis YouTube, conversion audio optimisée (16kHz, mono).
+- 🤖 **Segmentation IA (Whisper)** : Découpage intelligent par détection d'activité vocale (VAD) pour isoler les phrases sans altérer le sens.
+- ☁️ **Architecture Cloud-Native (Floci.io / AWS)** : Stockage des audios bruts sur **Amazon S3** et gestion ultra-rapide des données sur **Amazon DynamoDB**.
+- 👥 **Double Annotation Scientifique** : Interface React.js premium pour la validation experte en aveugle par les linguistes.
+- 🌓 **Interface Premium Dynamique** : Dashboard d'administration complet avec gestion des langues à la volée et bascule mode Clair / mode Sombre.
 
 ---
 
-## 🚀 Installation & Prérequis
+## 🏗️ Architecture & Flux de Travail
+
+Le système complet s'appuie sur une infrastructure robuste, développée pour garantir la scalabilité et la souveraineté des données via **Floci.io** (simulation AWS locale).
+
+```mermaid
+graph TD;
+    A[Source YouTube] -->|yt-dlp| B(Pipeline d'Ingestion Backend)
+    B -->|WAV 16kHz| C{IA Whisper VAD}
+    C -->|Upload Audio| D[(Amazon S3 - Floci)]
+    C -->|Indexation Segments| E[(DynamoDB - Floci)]
+    F[Admin Panel React] -->|Ajout Langues & URL| B
+    E --> G[Interface d'Annotation React]
+    G -->|Validation Linguiste| E
+```
+
+### Les 4 Étapes du Projet
+1. **Étape 01 : Collecte** (En production)
+2. **Étape 02 : Segmentation IA** (En production)
+3. **Étape 03 : Validation Scientifique** (MVP Terminé)
+4. **Étape 04 : Export Hugging Face** (À venir - Format Apache Parquet)
+
+---
+
+## 🚀 Prérequis & Installation
 
 ### 1. Prérequis Système
-- **Python 3.10+**
-- **FFmpeg** installé et accessible dans la variable `PATH` de votre système (nécessaire pour la conversion audio). Sous Windows, vous pouvez utiliser `winget install ffmpeg`.
+- **Python 3.10+** et **Node.js 18+**
+- **FFmpeg** installé et accessible dans votre `PATH`.
+- Infrastructure Cloud locale : **Floci.io** ou **LocalStack** (exécutant S3 & DynamoDB sur `http://localhost:4566`).
 
-### 2. Installation de l'environnement
-Clonez le dépôt, puis créez un environnement virtuel :
-```bash
-python -m venv venv
-# Activer l'environnement (Windows)
-venv\Scripts\activate
-
-# Installer les dépendances
-pip install -r requirements.txt
-```
-
----
-
-## 📖 Utilisation du Pipeline
-
-### Module de Collecte (`src/collecte/downloader.py`)
-
-Le script de collecte fonctionne via une Interface en Ligne de Commande (CLI). Il peut aspirer une vidéo unique ou une chaîne entière.
-
-**Option A : Télécharger une URL spécifique**
-```bash
-python src/collecte/downloader.py --url "https://www.youtube.com/watch?v=..."
-```
-
-**Option B : Utiliser le registre de sources (Téléchargement de masse)**
-Remplissez le fichier `config/sources.json` en y activant (`"status": "active"`) les chaînes ou playlists à aspirer, puis lancez :
-```bash
-python src/collecte/downloader.py --registry config/sources.json
-```
-
-### Module de Transcription (`src/transcription/transcriber.py`)
-
-Ce script utilise l'IA pour transcrire l'audio et générer les segments horodatés (injectés automatiquement dans le fichier `.json`).
-
-**Usage Basique :**
-```bash
-python src/transcription/transcriber.py --audio "data/raw/ID_VIDEO.wav"
-```
-
-**Usage Avancé (Langues à faibles ressources) :**
-Pour contourner l'absence des langues gabonaises dans l'IA, forcez un alphabet phonétique proche (ex: `fr`) et donnez un contexte (prompt) :
-```bash
-python src/transcription/transcriber.py --audio "data/raw/ID_VIDEO.wav" --language "fr" --prompt "Voici une transcription d'une langue bantu (Fang) d'Afrique centrale utilisant l'alphabet latin."
-```
-
-## 🚀 Installation & Déploiement
-
-L'application utilise une architecture **Monorepo** (Backend + Frontend) pour faciliter son déploiement.
-Pour respecter la souveraineté des données, l'application est conçue pour être déployée sur votre propre serveur Linux (VPS) ou ordinateur local.
-
-### Option 1 : Déploiement Production (Recommandé - via Docker)
-C'est la méthode la plus simple et la plus propre, idéale pour un serveur VPS (ex: OVH, LIKUID).
-1. Installez [Docker](https://docs.docker.com/get-docker/) et Docker Compose.
-2. Clonez le dépôt et créez votre fichier de configuration de sécurité :
+### 2. Déploiement Local
+1. **Cloner le dépôt :**
    ```bash
    git clone https://github.com/Gnzikoune/BantuVoice-MVP.git
    cd BantuVoice-MVP
-   cp .env.example .env
    ```
-3. *(Optionnel)* Modifiez le fichier `.env` pour définir un vrai mot de passe secret.
-4. Lancez l'intégralité du projet en une commande :
+
+2. **Backend & Base de données :**
    ```bash
-   docker-compose up -d --build
+   python -m venv venv
+   # Activer: venv\Scripts\activate (Windows) ou source venv/bin/activate (Linux/Mac)
+   pip install -r requirements.txt
+   
+   # Initialiser l'infrastructure AWS (Floci)
+   python src/api/init_aws.py
+   
+   # Lancer le serveur
+   python src/api/server.py
    ```
-Le portail sera accessible sur le port HTTP classique (`http://localhost` ou l'IP de votre serveur). Les données audio et la base de données sont sauvegardées de manière persistante dans le dossier `./data/`.
+
+3. **Frontend :**
+   ```bash
+   cd src/frontend
+   npm install
+   npm run dev
+   ```
 
 ---
 
-### Option 2 : Développement Local (Manuel)
-Si vous êtes un développeur et souhaitez modifier le code source :
+## 📖 Utilisation
 
-**Pré-requis :** Python 3.10+, Node.js 18+, FFmpeg installé sur le système.
+### Mode Administrateur
+Connectez-vous via l'interface web (http://localhost:5173) avec le compte `gildas_admin` (mot de passe par défaut: `password123`).
+Depuis l'onglet **Nouvelle Ingestion**, vous pouvez :
+- Ajouter dynamiquement de nouvelles langues à suivre.
+- Lancer le pipeline de téléchargement et segmentation en entrant une URL YouTube.
 
-**1. Le Backend (FastAPI) :**
-```bash
-# Dans le dossier racine du projet
-python -m venv venv
-source venv/bin/activate  # (Sous Windows : venv\Scripts\activate)
-pip install -r requirements.txt
-cp .env.example .env
-python src/api/server.py
-```
-*Le backend sera lancé sur http://127.0.0.1:8000*
-
-**2. Le Frontend (React.js) :**
-Dans un second terminal :
-```bash
-cd src/frontend
-npm install
-npm run dev
-```
-*L'interface utilisateur sera lancée sur le port par défaut de Vite (généralement 5173).*
+### Mode Linguiste (Annotation)
+Connectez-vous avec `linguiste_a` ou `linguiste_b`. 
+1. Sélectionnez une langue d'étude.
+2. Choisissez un fichier audio.
+3. Écoutez chaque segment généré et transcrivez dans la langue cible en validant avec `Ctrl + Entrée`.
 
 ---
 
+## 🔌 Documentation API
+
+Le backend s'appuie sur **FastAPI**. Voici les principales routes :
+
+| Méthode | Endpoint | Description | Rôle Requis |
+|---------|----------|-------------|-------------|
+| `POST` | `/login` | Authentification JWT et récupération du token | Tous |
+| `GET` | `/me` | Informations sur l'utilisateur courant | Tous |
+| `GET` | `/languages` | Liste des langues gabonaises enregistrées (DynamoDB) | Tous |
+| `GET` | `/audios` | Liste les fichiers audio, filtrables par `?language=` | Tous |
+| `GET` | `/segments` | Récupère les segments à annoter pour un `audio_id` donné | Tous |
+| `POST` | `/annotate` | Soumet ou met à jour la transcription d'un segment | Tous |
+| `POST` | `/admin/collect` | Lance le pipeline complet (DL + Whisper + AWS) en tâche de fond | Admin |
+| `GET` | `/admin/status` | Vérifie l'état d'avancement de la pipeline d'ingestion | Admin |
+| `POST` | `/admin/languages`| Crée une nouvelle langue dynamiquement dans la base | Admin |
+| `DELETE`| `/admin/languages/{code}`| Supprime une langue du registre | Admin |
+| `DELETE`| `/admin/audios/{audio_id}`| Supprime un audio, ses segments DB, et le fichier S3 | Admin |
+
+> Vous pouvez consulter la documentation Swagger complète en accédant à `http://127.0.0.1:8000/docs`.
+
 ---
 
-## 🤝 Contribuer au Projet
+## ⚖️ Éthique et Souveraineté
+
+- **Souveraineté :** Les corpus finaux restent sous le contrôle strict du CSGR-IA. L'architecture AWS (Floci) permet de garder l'hébergement on-premise ou sur des serveurs souverains.
+- **Transparence :** Consultez le fichier [`RESEARCH_LOG.md`](./RESEARCH_LOG.md) qui trace toutes nos décisions scientifiques, nos échecs méthodologiques (ex: Hallucinations de Whisper) et nos résolutions.
+
+---
+
+## 🤝 Contribuer
 
 Si vous rejoignez l'équipe technique, votre première étape obligatoire est de lire le **[Guide de Contribution (CONTRIBUTING.md)](./CONTRIBUTING.md)**. Il détaille le Workflow Git (Branches, Pull Requests) et les obligations de rigueur scientifique.
 
 ---
 
-## ⚖️ Éthique et Souveraineté
-- **Souveraineté :** Les corpus finaux restent sous le contrôle du CSGR-IA.
-- **Transparence :** Consultez le fichier [`RESEARCH_LOG.md`](./RESEARCH_LOG.md) qui trace toutes nos décisions scientifiques, nos échecs méthodologiques (ex: Hallucinations de Whisper) et nos résolutions.
-- **Sécurité :** Les secrets ne sont jamais commités, et le code est conçu pour gérer les erreurs externes de manière résiliente.
-
-*Porteurs de projet : Gildas & Aryad (Pôle Technique & Innovation, CSGR-IA).*
+<div align="center">
+  <br>
+  <em>Porteurs de projet : Gildas & Aryad (Pôle Technique & Innovation, CSGR-IA).</em>
+</div>

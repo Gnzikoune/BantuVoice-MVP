@@ -51,6 +51,12 @@ def init_aws():
                 {"AttributeName": "segment_id", "AttributeType": "S"}
             ],
             "BillingMode": "PAY_PER_REQUEST"
+        },
+        {
+            "TableName": "Languages",
+            "KeySchema": [{"AttributeName": "code", "KeyType": "HASH"}],
+            "AttributeDefinitions": [{"AttributeName": "code", "AttributeType": "S"}],
+            "BillingMode": "PAY_PER_REQUEST"
         }
     ]
 
