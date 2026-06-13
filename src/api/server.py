@@ -397,11 +397,25 @@ async def run_collection_pipeline(url: str, language: str):
 
         wav_files = glob.glob("data/raw/*.wav")
         for wav in wav_files:
+            # 1. Mise à jour de l'UI pour informer l'utilisateur de ce qui se passe sous le capot
+            admin_task_status.update({
+                "message": f"Chargement du modèle Whisper 'base' en mémoire...\nTranscription en cours pour : {wav}"
+            })
+            
+            # 2. Exécution asynchrone sécurisée du transcripteur
             await asyncio.to_thread(
                 subprocess.run,
                 f"venv\\Scripts\\python.exe src/transcription/transcriber.py --audio \"{wav}\"",
                 shell=True, check=True
             )
+            
+            # 3. Notification de succès pour ce fichier spécifique
+            json_path = wav.replace('.wav', '.json')
+            admin_task_status.update({
+                "message": f"[SUCCÈS] Transcription terminée et JSON mis à jour : {json_path}"
+            })
+            # Petite pause pour que le message soit lisible sur le frontend
+            await asyncio.sleep(1)
 
         # Étape 3 : Upload vers S3 + Enregistrement DynamoDB
         admin_task_status.update({

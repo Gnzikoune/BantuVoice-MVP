@@ -50,3 +50,13 @@ Conformément à la section **9.3 du Cadre Architectural**, ce document trace to
 - **Date :** Juin 2026
 - **Problème / Bug UI :** L'interface générait un scroll global de la page web, ce qui cachait le header et le bouton de déconnexion lorsque le linguiste défilait vers le bas.
 - **Résolution :** Modification du CSS pour adopter une architecture "Desktop-like" (`height: 100vh`, `overflow: hidden`). Seuls les panneaux latéraux peuvent désormais défiler.
+
+## Entrée 09 : Architecture Cloud-Native (Floci.io MVP)
+- **Date :** Juin 2026
+- **Problème / Limite :** Le stockage local (TinyDB + fichiers audio sur disque) ne garantissait pas la scalabilité pour 10 000+ audios, et empêchait de tester le code en conditions cloud (AWS).
+- **Résolution :** Déploiement de l'émulateur AWS local **Floci.io** via Docker. Les fichiers audio sont désormais stockés dans `Amazon S3` et les métadonnées/annotations dans `Amazon DynamoDB`. Le backend FastAPI a été refondu. Note sur l'image Docker : les registres GitHub/ECR publics contenant des versions obsolètes/privées de Floci ont échoué, l'image `hectorvent/floci:latest` depuis le Docker Hub s'est avérée être la version officielle et opérationnelle.
+
+## Entrée 10 : Incompatibilité Uvicorn & Sous-processus sous Windows
+- **Date :** Juin 2026
+- **Problème / Échec Critique :** Lors du lancement de la collecte depuis l'interface d'administration web, le backend FastAPI déclenchait une erreur `NotImplementedError` instantanée. Cela est dû au fait qu'Uvicorn utilise la boucle `SelectorEventLoop` par défaut sous Windows, laquelle ne supporte pas `asyncio.create_subprocess_shell`.
+- **Résolution :** Modification du pipeline de traitement (`server.py`) pour déléguer les appels `subprocess.run` synchrones dans un thread séparé via `asyncio.to_thread`. Cela permet de garder l'API asynchrone sans bloquer la boucle d'événements, tout en esquivant l'incompatibilité Windows.

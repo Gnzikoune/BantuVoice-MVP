@@ -44,7 +44,7 @@ function Login({ onLogin, error }) {
   )
 }
 
-// Composant Panneau d'Administration
+// Composant Panneau d'Administration (Dashboard)
 function AdminPanel({ token, apiUrl }) {
   const [url, setUrl] = useState('')
   const [language, setLanguage] = useState('')
@@ -52,34 +52,50 @@ function AdminPanel({ token, apiUrl }) {
   const [status, setStatus] = useState(null)
   const [error, setError] = useState('')
   const [audios, setAudios] = useState([])
+  const [activeTab, setActiveTab] = useState('overview')
+  const logsEndRef = useRef(null)
 
-  // Charger les langues et les audios
+  // Charger les langues, audios et statut initial
   useEffect(() => {
     const fetchAdminData = async () => {
       try {
         const langRes = await fetch(`${apiUrl}/admin/languages`, { headers: { 'Authorization': `Bearer ${token}` }})
         if (langRes.ok) setLanguages((await langRes.json()).languages)
-
         const audiosRes = await fetch(`${apiUrl}/admin/audios`, { headers: { 'Authorization': `Bearer ${token}` }})
         if (audiosRes.ok) setAudios((await audiosRes.json()).audios)
+        const statusRes = await fetch(`${apiUrl}/admin/status`, { headers: { 'Authorization': `Bearer ${token}` }})
+        if (statusRes.ok) setStatus(await statusRes.json())
       } catch (e) { console.error(e) }
     }
     fetchAdminData()
   }, [token, apiUrl])
 
-  // Polling du statut
+  // Polling du statut toutes les secondes si tâche active
   useEffect(() => {
     let interval;
     if (status?.is_running) {
       interval = setInterval(async () => {
         try {
           const res = await fetch(`${apiUrl}/admin/status`, { headers: { 'Authorization': `Bearer ${token}` }})
-          if (res.ok) setStatus(await res.json())
+          if (res.ok) {
+            const data = await res.json()
+            setStatus(data)
+            // Actualiser la bibliothèque une fois terminé
+            if (!data.is_running) {
+              const audiosRes = await fetch(`${apiUrl}/admin/audios`, { headers: { 'Authorization': `Bearer ${token}` }})
+              if (audiosRes.ok) setAudios((await audiosRes.json()).audios)
+            }
+          }
         } catch (e) { console.error(e) }
       }, 1000)
     }
     return () => clearInterval(interval)
   }, [status?.is_running, token, apiUrl])
+
+  // Auto-scroll du terminal vers le bas
+  useEffect(() => {
+    if (logsEndRef.current) logsEndRef.current.scrollIntoView({ behavior: 'smooth' })
+  }, [status?.message])
 
   const handleCollect = async (e) => {
     e.preventDefault()
@@ -93,84 +109,245 @@ function AdminPanel({ token, apiUrl }) {
       if (!res.ok) {
         setError((await res.json()).detail || 'Erreur lors du lancement')
       } else {
-        setStatus({ is_running: true, step: 'Initialisation...', progress: 5, message: 'Démarrage...' })
+        setStatus({ is_running: true, step: 'Étape 1 : Téléchargement audio', progress: 10, message: 'Démarrage de la collecte...' })
         setUrl('')
+        setActiveTab('ingest') // Basculer automatiquement pour voir les logs
       }
     } catch (e) {
       setError('Erreur de connexion au serveur')
     }
   }
 
+  // Calculs pour les KPI cards
+  const totalSegments = audios.reduce((sum, a) => sum + (a.segment_count || 0), 0)
+  const langCount = new Set(audios.map(a => a.language)).size
+
+  const tabs = [
+    { id: 'overview', label: '📊 Vue d\'ensemble' },
+    { id: 'ingest', label: '⚙️ Ingestion' },
+    { id: 'library', label: '📚 Bibliothèque' },
+  ]
+
   return (
-    <div className="admin-panel" style={{padding: '2rem', maxWidth: '1000px', margin: '0 auto', width: '100%'}}>
-      
-      {/* SECTION INGESTION */}
-      <div className="login-card" style={{maxWidth: '100%', marginBottom: '2rem'}}>
-        <h2>Nouvelle Ingestion (Collecte de données)</h2>
-        <p>Lancer une nouvelle collecte en spécifiant la langue de l'audio.</p>
-        
-        <form onSubmit={handleCollect} className="login-form" style={{marginTop: '2rem'}}>
-          <div style={{display: 'flex', gap: '1rem', flexWrap: 'wrap'}}>
-            <div className="form-group" style={{flex: 2, minWidth: '250px'}}>
-              <label>URL de la vidéo YouTube</label>
-              <input type="url" value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://www.youtube.com/watch?v=..." required disabled={status?.is_running} />
-            </div>
-            <div className="form-group" style={{flex: 1, minWidth: '150px'}}>
-              <label>Langue</label>
-              <select value={language} onChange={(e) => setLanguage(e.target.value)} required disabled={status?.is_running} style={{width: '100%', padding: '0.8rem', borderRadius: '4px', background: 'rgba(255,255,255,0.05)', color: 'var(--text-color)', border: '1px solid rgba(255,255,255,0.1)'}}>
-                <option value="" disabled>Choisir...</option>
-                {languages.map(l => <option key={l.code} value={l.code}>{l.label}</option>)}
-              </select>
-            </div>
-          </div>
-          
-          <button type="submit" className="btn-submit" disabled={status?.is_running} style={{width: '100%', justifyContent: 'center'}}>
-            {status?.is_running ? 'Collecte en cours...' : 'Lancer la Collecte & Segmentation'}
+    <div style={{ display: 'flex', flex: 1, overflow: 'hidden', gap: 0 }}>
+
+      {/* SIDEBAR ADMIN */}
+      <aside style={{
+        width: '220px', flexShrink: 0,
+        background: 'rgba(0,0,0,0.25)',
+        borderRight: '1px solid rgba(255,255,255,0.07)',
+        display: 'flex', flexDirection: 'column', padding: '1.5rem 0', gap: '0.25rem'
+      }}>
+        <div style={{ padding: '0 1.5rem', marginBottom: '1.5rem' }}>
+          <p style={{ fontSize: '0.7rem', fontWeight: 700, letterSpacing: '0.1em', color: 'var(--text-secondary)', textTransform: 'uppercase', margin: 0 }}>
+            Administration
+          </p>
+        </div>
+        {tabs.map(tab => (
+          <button key={tab.id} onClick={() => setActiveTab(tab.id)} style={{
+            background: activeTab === tab.id ? 'rgba(139,92,246,0.15)' : 'transparent',
+            border: 'none',
+            borderLeft: activeTab === tab.id ? '3px solid var(--accent-color)' : '3px solid transparent',
+            color: activeTab === tab.id ? 'var(--accent-color)' : 'var(--text-secondary)',
+            padding: '0.85rem 1.5rem', textAlign: 'left', cursor: 'pointer',
+            fontSize: '0.9rem', fontWeight: activeTab === tab.id ? 600 : 400,
+            transition: 'all 0.2s ease', width: '100%'
+          }}>
+            {tab.label}
           </button>
-          {error && <div style={{color: '#ff6b6b', marginTop: '1rem'}}>{error}</div>}
-        </form>
+        ))}
 
-        {status && (status.is_running || status.progress > 0) && (
-          <div style={{marginTop: '2rem', padding: '1.5rem', background: 'rgba(0,0,0,0.2)', borderRadius: '8px'}}>
-            <h3 style={{marginBottom: '1rem', fontSize: '1.1rem'}}>{status.step || 'En attente...'}</h3>
-            <div style={{width: '100%', height: '10px', background: 'rgba(255,255,255,0.1)', borderRadius: '5px', overflow: 'hidden'}}>
-              <div style={{ height: '100%', width: `${status.progress}%`, background: 'var(--accent-color)', transition: 'width 0.5s ease' }}></div>
+        {/* Indicateur de tâche dans la sidebar */}
+        {status?.is_running && (
+          <div style={{ margin: '1.5rem 1rem 0', padding: '0.75rem', background: 'rgba(59,130,246,0.1)', borderRadius: '8px', border: '1px solid rgba(59,130,246,0.3)' }}>
+            <div style={{ fontSize: '0.72rem', color: '#60a5fa', fontWeight: 700, marginBottom: '0.4rem' }}>● PIPELINE ACTIF</div>
+            <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', lineHeight: 1.4 }}>{status.step}</div>
+            <div style={{ marginTop: '0.5rem', height: '4px', background: 'rgba(255,255,255,0.1)', borderRadius: '2px', overflow: 'hidden' }}>
+              <div style={{ height: '100%', width: `${status.progress}%`, background: '#60a5fa', transition: 'width 0.5s ease' }}></div>
             </div>
-            <p style={{marginTop: '1rem', fontSize: '0.9rem', color: 'var(--text-secondary)'}}>{status.message}</p>
           </div>
         )}
-      </div>
+      </aside>
 
-      {/* SECTION BIBLIOTHÈQUE */}
-      <div className="login-card" style={{maxWidth: '100%'}}>
-        <h2>Bibliothèque d'Audios (AWS DynamoDB)</h2>
-        <p>Liste de tous les audios ingérés et disponibles pour les linguistes.</p>
-        
-        {audios.length === 0 ? (
-           <div className="empty-state" style={{marginTop: '2rem'}}>📭 Aucun audio dans la bibliothèque.</div>
-        ) : (
-          <table style={{width: '100%', marginTop: '1.5rem', borderCollapse: 'collapse', textAlign: 'left'}}>
-            <thead>
-              <tr style={{borderBottom: '1px solid rgba(255,255,255,0.1)'}}>
-                <th style={{padding: '1rem 0'}}>Titre / ID</th>
-                <th>Langue</th>
-                <th>Segments</th>
-                <th>Date d'ingestion</th>
-              </tr>
-            </thead>
-            <tbody>
-              {audios.map(a => (
-                <tr key={a.audio_id} style={{borderBottom: '1px solid rgba(255,255,255,0.05)'}}>
-                  <td style={{padding: '1rem 0'}}><strong>{a.title || a.audio_id}</strong></td>
-                  <td><span className="status-badge status-pending" style={{textTransform: 'capitalize'}}>{a.language}</span></td>
-                  <td>{a.segment_count} extraits</td>
-                  <td style={{fontSize: '0.85rem', color: 'var(--text-secondary)'}}>{new Date(a.created_at).toLocaleString()}</td>
-                </tr>
+      {/* CONTENU PRINCIPAL */}
+      <main style={{ flex: 1, overflow: 'auto', padding: '2rem' }}>
+
+        {/* ── ONGLET : VUE D'ENSEMBLE ── */}
+        {activeTab === 'overview' && (
+          <div>
+            <h2 style={{ marginBottom: '0.25rem' }}>Tableau de Bord</h2>
+            <p style={{ color: 'var(--text-secondary)', marginBottom: '2rem', marginTop: 0 }}>Vue d'ensemble du corpus BantuVoice</p>
+
+            {/* KPI CARDS */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: '1rem', marginBottom: '2rem' }}>
+              {[
+                { label: 'Audios collectés', value: audios.length, icon: '🎵', color: '#8b5cf6' },
+                { label: 'Segments total', value: totalSegments, icon: '✂️', color: '#3b82f6' },
+                { label: 'Langues couvertes', value: langCount, icon: '🌍', color: '#10b981' },
+                { label: 'Infrastructure', value: 'Floci ☁️', icon: '🛠️', color: '#f59e0b' },
+              ].map(kpi => (
+                <div key={kpi.label} style={{
+                  background: 'var(--card-bg)', border: '1px solid var(--border-color)',
+                  borderRadius: '12px', padding: '1.25rem',
+                  borderTop: `3px solid ${kpi.color}`
+                }}>
+                  <div style={{ fontSize: '1.8rem', marginBottom: '0.5rem' }}>{kpi.icon}</div>
+                  <div style={{ fontSize: '1.6rem', fontWeight: 700, color: kpi.color }}>{kpi.value}</div>
+                  <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginTop: '0.2rem' }}>{kpi.label}</div>
+                </div>
               ))}
-            </tbody>
-          </table>
+            </div>
+
+            {/* Répartition par langue */}
+            <div style={{ background: 'var(--card-bg)', border: '1px solid var(--border-color)', borderRadius: '12px', padding: '1.5rem' }}>
+              <h3 style={{ marginBottom: '1.25rem', fontSize: '1rem', marginTop: 0 }}>Répartition par langue</h3>
+              {languages.map(lang => {
+                const count = audios.filter(a => a.language === lang.code).length
+                const pct = audios.length ? Math.round((count / audios.length) * 100) : 0
+                return (
+                  <div key={lang.code} style={{ marginBottom: '1rem' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.3rem', fontSize: '0.85rem' }}>
+                      <span>{lang.label}</span>
+                      <span style={{ color: 'var(--text-secondary)' }}>{count} audio(s) — {pct}%</span>
+                    </div>
+                    <div style={{ height: '6px', background: 'rgba(255,255,255,0.08)', borderRadius: '3px', overflow: 'hidden' }}>
+                      <div style={{ height: '100%', width: `${pct}%`, background: 'var(--accent-color)', borderRadius: '3px', transition: 'width 0.8s ease' }}></div>
+                    </div>
+                  </div>
+                )
+              })}
+              {audios.length === 0 && (
+                <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', margin: 0 }}>
+                  Aucun audio dans le corpus.{' '}
+                  <button onClick={() => setActiveTab('ingest')} style={{ background: 'none', border: 'none', color: 'var(--accent-color)', cursor: 'pointer', padding: 0, textDecoration: 'underline' }}>
+                    Commencer une ingestion →
+                  </button>
+                </p>
+              )}
+            </div>
+          </div>
         )}
-      </div>
+
+        {/* ── ONGLET : INGESTION ── */}
+        {activeTab === 'ingest' && (
+          <div>
+            <h2 style={{ marginBottom: '0.25rem' }}>Nouvelle Ingestion</h2>
+            <p style={{ color: 'var(--text-secondary)', marginBottom: '2rem', marginTop: 0 }}>Télécharger et segmenter un audio depuis YouTube.</p>
+
+            <div style={{ background: 'var(--card-bg)', border: '1px solid var(--border-color)', borderRadius: '12px', padding: '1.5rem', marginBottom: '1.5rem' }}>
+              <form onSubmit={handleCollect} className="login-form">
+                <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
+                  <div className="form-group" style={{ flex: 2, minWidth: '250px' }}>
+                    <label>URL YouTube</label>
+                    <input type="url" value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://www.youtube.com/watch?v=..." required disabled={status?.is_running} />
+                  </div>
+                  <div className="form-group" style={{ flex: 1, minWidth: '150px' }}>
+                    <label>Langue</label>
+                    <select value={language} onChange={(e) => setLanguage(e.target.value)} required disabled={status?.is_running} style={{ width: '100%', padding: '0.8rem', borderRadius: '8px', background: 'rgba(255,255,255,0.05)', color: 'var(--text-color)', border: '1px solid rgba(255,255,255,0.1)' }}>
+                      <option value="" disabled>Choisir...</option>
+                      {languages.map(l => <option key={l.code} value={l.code}>{l.label}</option>)}
+                    </select>
+                  </div>
+                </div>
+                <button type="submit" className="btn-submit" disabled={status?.is_running} style={{ marginTop: '1rem', width: '100%', justifyContent: 'center' }}>
+                  {status?.is_running ? '⏳ Pipeline en cours...' : '🚀 Lancer la Collecte & Segmentation'}
+                </button>
+                {error && <div style={{ color: '#ff6b6b', marginTop: '0.75rem', padding: '0.75rem', background: 'rgba(255,107,107,0.1)', borderRadius: '6px', fontSize: '0.9rem' }}>{error}</div>}
+              </form>
+            </div>
+
+            {/* TERMINAL DE LOGS EN TEMPS RÉEL */}
+            {status && (status.is_running || status.progress > 0) && (
+              <div style={{ background: '#0d1117', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '12px', overflow: 'hidden' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.75rem 1rem', background: '#161b22', borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
+                  <span style={{ width: '12px', height: '12px', borderRadius: '50%', background: '#ff5f57', display: 'inline-block' }}></span>
+                  <span style={{ width: '12px', height: '12px', borderRadius: '50%', background: '#febc2e', display: 'inline-block' }}></span>
+                  <span style={{ width: '12px', height: '12px', borderRadius: '50%', background: '#28c840', display: 'inline-block' }}></span>
+                  <span style={{ marginLeft: '0.5rem', fontSize: '0.78rem', color: '#8b949e', fontFamily: 'monospace' }}>pipeline.log — BantuVoice AI</span>
+                </div>
+                <div style={{ padding: '0.75rem 1rem', borderBottom: '1px solid rgba(255,255,255,0.05)', display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                  <div style={{ flex: 1, height: '6px', background: 'rgba(255,255,255,0.08)', borderRadius: '3px', overflow: 'hidden' }}>
+                    <div style={{
+                      height: '100%', width: `${status.progress}%`,
+                      background: status.step?.startsWith('✅') ? '#28c840' : status.step?.startsWith('❌') ? '#ff5f57' : 'linear-gradient(90deg, #3b82f6, #8b5cf6)',
+                      transition: 'width 0.5s ease'
+                    }}></div>
+                  </div>
+                  <span style={{ fontSize: '0.8rem', fontFamily: 'monospace', color: '#8b949e', whiteSpace: 'nowrap' }}>
+                    {status.step} ({status.progress}%)
+                  </span>
+                </div>
+                <div style={{ padding: '1rem', fontFamily: '"Cascadia Code", "Fira Code", monospace', fontSize: '0.82rem', lineHeight: '1.9', color: '#c9d1d9', maxHeight: '280px', overflowY: 'auto' }}>
+                  {(status.message || '').split('\n').map((line, i) => (
+                    <div key={i} style={{
+                      color: line.startsWith('[SUCCÈS]') ? '#28c840'
+                        : line.startsWith('Chargement') ? '#febc2e'
+                        : line.startsWith('Transcription') ? '#60a5fa'
+                        : line.startsWith('❌') ? '#ff5f57'
+                        : '#c9d1d9'
+                    }}>
+                      <span style={{ color: '#4a5568', marginRight: '0.6rem', userSelect: 'none' }}>$</span>{line}
+                    </div>
+                  ))}
+                  {status.is_running && (
+                    <div><span style={{ color: '#4a5568', marginRight: '0.6rem' }}>$</span>
+                      <span style={{ display: 'inline-block', width: '8px', height: '14px', background: '#60a5fa', verticalAlign: 'text-bottom', animation: 'blink 1s step-end infinite' }}></span>
+                    </div>
+                  )}
+                  <div ref={logsEndRef} />
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ── ONGLET : BIBLIOTHÈQUE ── */}
+        {activeTab === 'library' && (
+          <div>
+            <h2 style={{ marginBottom: '0.25rem' }}>Bibliothèque d'Audios</h2>
+            <p style={{ color: 'var(--text-secondary)', marginBottom: '2rem', marginTop: 0 }}>Corpus indexé dans Amazon DynamoDB via Floci.io.</p>
+            {audios.length === 0 ? (
+              <div style={{ background: 'var(--card-bg)', border: '1px solid var(--border-color)', borderRadius: '12px', padding: '3rem', textAlign: 'center' }}>
+                <div style={{ fontSize: '3rem', marginBottom: '1rem' }}>📭</div>
+                <p style={{ color: 'var(--text-secondary)' }}>Aucun audio dans la bibliothèque.</p>
+                <button className="btn-submit" style={{ marginTop: '1rem' }} onClick={() => setActiveTab('ingest')}>➕ Nouvelle Ingestion</button>
+              </div>
+            ) : (
+              <div style={{ background: 'var(--card-bg)', border: '1px solid var(--border-color)', borderRadius: '12px', overflow: 'hidden' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
+                  <thead>
+                    <tr style={{ background: 'rgba(0,0,0,0.2)' }}>
+                      {['Titre / ID', 'Langue', 'Segments', 'Ingéré le'].map(h => (
+                        <th key={h} style={{ padding: '1rem 1.25rem', fontSize: '0.72rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-secondary)' }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {audios.map((a, i) => (
+                      <tr key={a.audio_id} style={{ borderTop: '1px solid var(--border-color)', background: i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.01)' }}>
+                        <td style={{ padding: '1rem 1.25rem' }}>
+                          <div style={{ fontWeight: 600 }}>{a.title || a.audio_id}</div>
+                          <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', fontFamily: 'monospace', marginTop: '0.2rem' }}>{a.audio_id}</div>
+                        </td>
+                        <td style={{ padding: '1rem 1.25rem' }}>
+                          <span className="status-badge status-annotated" style={{ textTransform: 'capitalize' }}>{a.language}</span>
+                        </td>
+                        <td style={{ padding: '1rem 1.25rem' }}>
+                          <span style={{ fontWeight: 700, color: 'var(--accent-color)' }}>{a.segment_count}</span>
+                          <span style={{ color: 'var(--text-secondary)', fontSize: '0.82rem' }}> extraits</span>
+                        </td>
+                        <td style={{ padding: '1rem 1.25rem', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                          {new Date(a.created_at).toLocaleString('fr-FR')}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
+      </main>
     </div>
   )
 }
