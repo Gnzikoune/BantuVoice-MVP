@@ -28,7 +28,15 @@
 - **Commentaires en ligne :** Chaque bloc de code non-trivial doit expliquer l'*intention*, pas la mécanique.
 - **Docstrings obligatoires :** Toute fonction, classe ou module Python doit inclure une Docstring (paramètres, retour, rôle dans le pipeline).
 - **RESEARCH_LOG.md — Règle Fondamentale :** Tout bug critique, toute décision architecturale, et toute erreur bloquante **doit** être documentée dans [`RESEARCH_LOG.md`](./RESEARCH_LOG.md). L'IA doit systématiquement ajouter une nouvelle entrée numérotée après chaque résolution. Ne jamais "corriger en silence".
-- **Mise à jour du README :** Toute nouvelle fonctionnalité ou route API ajoutée doit être reflétée dans [`README.md`](./README.md) (tableau API, fonctionnalités, etc.).
+- **Mise à jour du README — Règle Non-Négociable :** Le [`README.md`](./README.md) est la vitrine publique du projet. Il doit être mis à jour **dans le même commit ou le commit suivant** toute modification affectant :
+  - ✅ Une nouvelle fonctionnalité visible (pipeline, interface, comportement)
+  - ✅ Un nouveau module Python ou script créé
+  - ✅ Une nouvelle route API ou la modification d'une route existante
+  - ✅ Un changement de dépendance majeure (ex : migration de bibliothèque IA)
+  - ✅ Un changement d'architecture (ex : nouveau service AWS, nouveau flux de données)
+  - ✅ La procédure d'installation ou de lancement
+  - **Périmètre du README :** Fonctionnalités, diagramme de flux (Mermaid), tableau API complet, installation, éthique.
+  - **Ne jamais laisser le README en retard de plus d'une session de travail.**
 
 ---
 
