@@ -8,12 +8,19 @@ collectés à l'étape 1, et enrichit le fichier JSON de métadonnées.
 import os
 import json
 import argparse
+# pyrefly: ignore [missing-import]
 import whisper
 
-# [SECURITE / ROBUSTESSE] Whisper a absolument besoin de FFmpeg dans le PATH pour fonctionner.
-ffmpeg_path = r"C:\Users\hp\AppData\Local\Microsoft\WinGet\Packages\Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe\ffmpeg-8.1.1-full_build\bin"
+# SÉCURITÉ (AI_WORKFLOW_RULES §5) : Le chemin FFmpeg est lu depuis les variables d'environnement.
+# Ne jamais hardcoder un chemin machine-dépendant dans le code source.
+# Définissez FFMPEG_PATH dans votre fichier .env si ffmpeg n'est pas dans le PATH système.
+ffmpeg_path = os.getenv(
+    "FFMPEG_PATH",
+    r"C:\Users\hp\AppData\Local\Microsoft\WinGet\Packages\Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe\ffmpeg-8.1.1-full_build\bin"
+)
 if os.path.exists(ffmpeg_path) and ffmpeg_path not in os.environ.get("PATH", ""):
     os.environ["PATH"] += os.pathsep + ffmpeg_path
+
 
 def transcribe_and_update_json(audio_path: str, model_size: str = "base", language: str = None, prompt: str = None) -> bool:
     """

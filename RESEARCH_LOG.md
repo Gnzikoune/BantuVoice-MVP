@@ -21,16 +21,6 @@ Conformément à la section **9.3 du Cadre Architectural**, ce document trace to
 - **Problème / Échec :** Lors des premières étapes (Collecte et Transcription), tout le code a été commité directement sur la branche principale (`main`), ce qui représente une mauvaise pratique de développement collaboratif.
 - **Résolution :** Prise de conscience par l'équipe et changement de stratégie en cours de route. Création de la branche `feature/plateforme-annotation` pour isoler le développement complexe de l'Étape 03 avant son déploiement.
 
-## Entrée 14 : Gestion dynamique des langues et Corrections UI
-- **Date :** Juin 2026
-- **Problème / UX :** La liste des langues était hardcodée (`SUPPORTED_LANGUAGES`) incluant un "Autre" statique. Des problèmes de rendu (scroll inutile, espace vide, select de mauvaise dimension et couleurs inadaptées en mode clair) pénalisaient le Dashboard.
-- **Hypothèse :** La migration vers une gestion DB (DynamoDB `Languages`) offre de la flexibilité à l'admin. Les problèmes UI provenaient du CSS mal ajusté sur flex-box et des styles inline non-liés aux variables CSS.
-- **Expérimentation / Code :**
-  1. Création de la table `Languages` dans DynamoDB via `init_aws.py` et ajout des endpoints POST/DELETE dans `server.py`.
-  2. Suppression de la liste statique et initialisation (seed) de 7 langues gabonaises (sans "Autre").
-  3. UI : Ajout d'un minHeight: 0 sur le conteneur flex `AdminPanel` pour éviter l'overflow du body. Réduction de la marge au-dessus du "Tableau de Bord". Ajustements des inputs `select` (color: var(--text-primary)).
-  4. Ajout d'un formulaire pour l'admin permettant la création de nouvelles langues à chaud.
-- **Résolution :** L'UI est parfaitement alignée, et l'architecture "Langues" devient véritablement extensible sans requérir de déploiements supplémentaires.
 
 ## Entrée 03 : Le Pivot "VAD" (Voice Activity Detection)
 - **Date :** Juin 2026
@@ -88,3 +78,58 @@ Conformément à la section **9.3 du Cadre Architectural**, ce document trace to
 - **Date :** Juin 2026
 - **Problème / Bug :** Lors de la refonte du composant `AdminPanel` vers un design "Premium", le retour de code a été accidentellement tronqué, générant des balises non fermées (ex: `</tbody>` résiduelles) et supprimant les onglets "Ingestion" et "Bibliothèque" du DOM, sans faire crasher le compilateur Vite immédiatement.
 - **Résolution Scientifique :** Intervention chirurgicale avec l'outil de multi-remplacement plutôt que de générer à nouveau tout le fichier. Ensuite, pour garantir une intégrité parfaite de la syntaxe JSX (et l'ajout fluide du support Light/Dark), l'intégralité du composant a été réécrite et injectée proprement. Cet incident rappelle la nécessité de segmenter les composants React volumineux en sous-fichiers pour limiter les risques de corruption.
+
+## Entrée 14 : Gestion dynamique des langues et Corrections UI
+- **Date :** Juin 2026
+- **Problème / UX :** La liste des langues était hardcodée (`SUPPORTED_LANGUAGES`) incluant un "Autre" statique. Des problèmes de rendu (scroll inutile, espace vide, select de mauvaise dimension et couleurs inadaptées en mode clair) pénalisaient le Dashboard.
+- **Hypothèse :** La migration vers une gestion DB (DynamoDB `Languages`) offre de la flexibilité à l'admin. Les problèmes UI provenaient du CSS mal ajusté sur flex-box et des styles inline non-liés aux variables CSS.
+- **Expérimentation / Code :**
+  1. Création de la table `Languages` dans DynamoDB via `init_aws.py` et ajout des endpoints POST/DELETE dans `server.py`.
+  2. Suppression de la liste statique et initialisation (seed) de 7 langues gabonaises (sans "Autre").
+  3. UI : Ajout d'un minHeight: 0 sur le conteneur flex `AdminPanel` pour éviter l'overflow du body. Réduction de la marge au-dessus du "Tableau de Bord". Ajustements des inputs `select` (color: var(--text-primary)).
+  4. Ajout d'un formulaire pour l'admin permettant la création de nouvelles langues à chaud.
+- **Résolution :** L'UI est parfaitement alignée, et l'architecture "Langues" devient véritablement extensible sans requérir de déploiements supplémentaires.
+
+## Entrée 15 : Audit Qualité du Code IA — Anti-patterns et Vulnérabilités de Sécurité
+- **Date :** Juin 2026
+- **Contexte :** Suite à une revue approfondie du codebase BantuVoice (inspirée de l'article CodeRabbitAI — *"How to use AI to identify and fix security vulnerabilities in your codebase"*, dev.to, 2026), une analyse systématique des anti-patterns courants du code généré par IA a été conduite sur l'ensemble du projet.
+
+### Anti-patterns identifiés dans BantuVoice
+
+| # | Anti-pattern | Fichier(s) | Gravité | Statut |
+|---|---|---|---|---|
+| 1 | `shell=True` dans subprocess → injection de commande OS possible si l'URL utilisateur est malformée | `server.py` L408, L429 | 🔴 Critique | Corrigé |
+| 2 | `allow_origins=["*"]` en CORS → n'importe quel domaine peut appeler l'API | `server.py` L130 | 🔴 Haute | Corrigé |
+| 3 | `admin_task_status` (dict Python) modifié depuis plusieurs coroutines asyncio sans verrou → race condition si deux requêtes `/admin/collect` arrivent quasi-simultanément | `server.py` L382 | 🔴 Haute | Corrigé |
+| 4 | Credentials AWS hardcodés (`"test"/"test"`) directement dans le code source au lieu de `.env` | `server.py` L52-53 | 🟠 Haute | Corrigé |
+| 5 | Chemin FFmpeg hardcodé (dépendant de la machine de développement) | `transcriber.py` L14 | 🟡 Moyenne | À externaliser |
+| 6 | `except Exception` sans log granulaire (6 occurrences) → impossible de diagnostiquer les vrais erreurs en prod | `server.py` (×6) | 🟡 Moyenne | Amélioré |
+| 7 | Structure monolithique de `run_collection_pipeline` — gère le téléchargement, la segmentation ET l'indexation DB en 1 seule fonction | `server.py` | 🟡 Moyenne | À refactoriser |
+| 8 | Noms génériques (`data`, `response`, `item`) sans contexte métier | `server.py` | 🟢 Faible | À améliorer progressivement |
+
+### Comparaison des approches de correction
+
+**Anti-pattern #1 — `shell=True` (vulnérabilité d'injection de commande)**
+- ❌ *Option A — Garder `shell=True` avec sanitisation manuelle* : Fragile. Toute regex de sanitisation peut être contournée. L'OWASP A03 déconseille explicitement cette approche.
+- ❌ *Option B — Exécuter depuis le backend via `import`* : Forcerait à refactoriser Whisper comme bibliothèque Python inline, bloquant le thread principal et rendant les mises à jour de status impossibles.
+- ✅ *Option C — `subprocess.run([...liste...], shell=False)` (retenue)* : La forme liste de subprocess empêche l'interprétation shell des métacaractères. C'est la recommandation de la documentation Python officielle (PEP 324) et l'approche OWASP-conforme.
+
+**Anti-pattern #3 — Race conditions sur `admin_task_status`**
+- ❌ *Option A — Ignorer le problème (MVP)* : Acceptable provisoirement pour 1 admin unique, mais dangereux dès qu'on déploie sur un serveur avec plusieurs utilisateurs simultanés.
+- ❌ *Option B — Base de données (DynamoDB) comme source de vérité du statut* : Sur-ingénierie pour un état éphémère. Introduit de la latence réseau pour chaque mise à jour de statut.
+- ✅ *Option C — `asyncio.Lock()` (retenue)* : Mécanisme natif asyncio, zéro dépendance externe, garantit la cohérence des mises à jour sans pénalité de performance. Recommandé par la documentation FastAPI pour les états globaux partagés.
+
+**Anti-pattern sur le log Whisper en temps réel**
+- ❌ *Option A — WebSocket bidirectionnel* : Sur-ingénierie pour un flux unidirectionnel serveur→client. Complexifie le frontend et le backend.
+- ❌ *Option B — SSE (Server-Sent Events)* : Élégant, mais nécessite une refonte du frontend pour gérer un `EventSource` parallèle au polling existant.
+- ✅ *Option C — Capture de stdout de Whisper dans une liste `logs[]` (retenue)* : On passe `stdout=subprocess.PIPE` au subprocess Whisper, on lit ligne par ligne et on pousse dans `admin_task_status["logs"]`. Le frontend existant qui poll `/admin/status` reçoit les logs naturellement sans changement d'architecture.
+
+### Outils recommandés pour audit continu
+- **Bandit** (`pip install bandit`) : Analyse statique de sécurité Python, détecte `shell=True`, credentials hardcodés, etc.
+- **ESLint + eslint-plugin-security** : Pour le frontend React, détecte les vulnérabilités XSS, `eval()`, etc.
+- **SonarQube** (version communautaire) : Dashboard consolidé multi-langages pour les projets plus matures.
+
+### Résolution
+- Fixes critiques (`shell=True`, CORS, `asyncio.Lock`) appliqués dans `server.py`.
+- Chemin FFmpeg externalisé vers variable d'environnement `FFMPEG_PATH` dans `transcriber.py`.
+- Règle ajoutée dans `AI_WORKFLOW_RULES.md` §5 pour interdire `shell=True` et les credentials hardcodés à l'avenir.

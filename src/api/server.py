@@ -118,19 +118,25 @@ except Exception as e:
     print("[AVERTISSEMENT] Vérifiez que le conteneur Docker 'bantuvoice-floci' est en cours d'exécution.")
 
 # --- TRACKING DE TÂCHE ADMIN ---
+# asyncio.Lock() évite les race conditions si plusieurs requêtes admin arrivent simultanément.
+_pipeline_lock = asyncio.Lock()
 admin_task_status = {
-    "is_running": False, "step": "", "progress": 0, "message": ""
+    "is_running": False, "step": "", "progress": 0, "message": "", "logs": []
 }
 
 # --- INITIALISATION API ---
 app = FastAPI(title="BantuVoice Annotation API", version="3.0")
 
+# SÉCURITÉ (AI_WORKFLOW_RULES §5) : CORS restreint aux origines connues.
+# En production, remplacer par l'URL publique du frontend.
+ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173").split(",")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type"],
 )
 
 # --- MODÈLES PYDANTIC ---
@@ -145,7 +151,8 @@ class AnnotationPayload(BaseModel):
 
 class AdminCollectPayload(BaseModel):
     url: str
-    language: str  # Code de la langue (ex: "fang")
+    language: str                        # Code de la langue (ex: "fang")
+    mode: str = "single"                 # "single" = vidéo/playlist URL, "registry" = sources.json
 
 # --- FONCTIONS SÉCURITÉ ---
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
@@ -362,10 +369,12 @@ def admin_get_audios(current_user: dict = Depends(require_admin)):
 @app.post("/admin/collect")
 async def admin_collect(payload: AdminCollectPayload, current_user: dict = Depends(require_admin)):
     """
-    Lance une collecte en arrière-plan pour une URL YouTube.
-    Requiert désormais la langue de l'audio pour cataloguer correctement dans la bibliothèque.
+    Lance une collecte en arrière-plan.
+    Modes supportés :
+    - 'single' : télécharge une URL unique (vidéo, playlist ou chaîne YouTube)
+    - 'registry' : lit config/sources.json et traite toutes les sources actives
     """
-    if admin_task_status["is_running"]:
+    if _pipeline_lock.locked():
         raise HTTPException(status_code=400, detail="Une tâche est déjà en cours.")
 
     # Validation de la langue depuis DynamoDB
@@ -373,77 +382,125 @@ async def admin_collect(payload: AdminCollectPayload, current_user: dict = Depen
     try:
         lang_response = dynamodb.Table('Languages').scan()
         valid_codes = [item['code'] for item in lang_response.get('Items', [])]
-    except Exception:
-        valid_codes = []
-    
+    except Exception as db_err:
+        raise HTTPException(status_code=503, detail=f"Impossible de vérifier les langues (DynamoDB): {db_err}")
+
     if payload.language not in valid_codes:
         raise HTTPException(status_code=400, detail=f"Langue invalide. Codes valides: {valid_codes}")
 
+    mode_label = "Chaîne/Registre" if payload.mode == "registry" else f"URL : {payload.url}"
     admin_task_status.update({
         "is_running": True,
         "step": "Étape 1 : Téléchargement audio",
         "progress": 10,
-        "message": f"Aspiration de '{payload.url}' via yt-dlp (langue: {payload.language})..."
+        "message": f"Lancement ({mode_label}) — langue: {payload.language}",
+        "logs": [f"▶ Mode : {payload.mode}", f"▶ Langue : {payload.language}"]
     })
 
-    asyncio.create_task(run_collection_pipeline(payload.url, payload.language))
+    asyncio.create_task(run_collection_pipeline(payload.url, payload.language, payload.mode))
     return {"message": "Collecte lancée en arrière-plan"}
 
 @app.get("/admin/status")
 def admin_status(current_user: dict = Depends(require_admin)):
     return admin_task_status
 
-async def run_collection_pipeline(url: str, language: str):
+@app.get("/admin/sources")
+def admin_get_sources(current_user: dict = Depends(require_admin)):
+    """Retourne le contenu de config/sources.json pour affichage dans le panneau admin."""
+    sources_path = os.path.join("config", "sources.json")
+    try:
+        with open(sources_path, 'r', encoding='utf-8') as sources_file:
+            return {"sources": json.load(sources_file)}
+    except FileNotFoundError:
+        return {"sources": []}
+
+def _push_log(line: str):
+    """Pousse une ligne dans le journal de bord du pipeline (admin_task_status['logs'])."""
+    admin_task_status["logs"].append(line)
+    admin_task_status["message"] = line
+
+
+async def run_collection_pipeline(url: str, language: str, mode: str = "single"):
     """
-    Pipeline de collecte asynchrone en arrière-plan :
-    1. Téléchargement via yt-dlp
-    2. Segmentation IA via Whisper
+    Pipeline de collecte asynchrone en arrière-plan.
+    Protégé par _pipeline_lock (asyncio.Lock) pour éviter les race conditions.
+
+    Étapes :
+    1. Téléchargement via yt-dlp (URL unique ou registre sources.json)
+    2. Segmentation IA via Whisper (avec capture stdout pour logs temps réel)
     3. Upload S3 + insertion DynamoDB
     """
-    try:
-        import subprocess
-        # Étape 1 : Téléchargement
-        await asyncio.to_thread(
-            subprocess.run,
-            f"venv\\Scripts\\python.exe src/collecte/downloader.py --url \"{url}\"",
-            shell=True, check=True
-        )
+    import subprocess  # Import local pour isoler la dépendance
 
-        # Étape 2 : Transcription/Segmentation
-        admin_task_status.update({
-            "step": "Étape 2 : Segmentation IA (Whisper)",
-            "progress": 50,
-            "message": "Analyse temporelle et découpage en segments..."
-        })
+    async with _pipeline_lock:
+        try:
+            # --- Étape 1 : Téléchargement ---
+            _push_log("⬇ Démarrage du téléchargement via yt-dlp...")
 
-        wav_files = glob.glob("data/raw/*.wav")
-        for wav in wav_files:
-            # 1. Mise à jour de l'UI pour informer l'utilisateur de ce qui se passe sous le capot
-            admin_task_status.update({
-                "message": f"Chargement du modèle Whisper 'base' en mémoire...\nTranscription en cours pour : {wav}"
-            })
-            
-            # 2. Exécution asynchrone sécurisée du transcripteur
-            await asyncio.to_thread(
-                subprocess.run,
-                f"venv\\Scripts\\python.exe src/transcription/transcriber.py --audio \"{wav}\"",
-                shell=True, check=True
-            )
-            
-            # 3. Notification de succès pour ce fichier spécifique
-            json_path = wav.replace('.wav', '.json')
-            if os.path.exists(json_path):
-                with open(json_path, 'r', encoding='utf-8') as f:
-                    data = json.load(f)
-                    segments = data.get("transcription", {}).get("segments", [])
-                    duration = segments[-1]["end"] if segments else 0
-                    msg = f"[SUCCÈS] {os.path.basename(wav)}: {len(segments)} segments, {duration:.1f}s."
+            # SÉCURITÉ (AI_WORKFLOW_RULES §5) : Utilisation de la forme LISTE pour subprocess.
+            # shell=False (défaut) empêche l'injection de commandes OS depuis l'URL utilisateur.
+            python_bin = os.path.join("venv", "Scripts", "python.exe")
+
+            if mode == "registry":
+                dl_cmd = [python_bin, "src/collecte/downloader.py", "--registry", "config/sources.json"]
+                _push_log("📋 Mode registre : traitement de config/sources.json")
             else:
-                msg = f"[SUCCÈS] Transcription terminée pour {os.path.basename(wav)}"
-            
-            admin_task_status.update({"message": msg})
-            # Petite pause pour que le message soit lisible sur le frontend
-            await asyncio.sleep(1)
+                dl_cmd = [python_bin, "src/collecte/downloader.py", "--url", url]
+                _push_log(f"🔗 Mode URL unique : {url}")
+
+            dl_result = await asyncio.to_thread(
+                subprocess.run, dl_cmd, shell=False, capture_output=True, text=True
+            )
+            if dl_result.returncode != 0:
+                _push_log(f"❌ Erreur téléchargement : {dl_result.stderr[:300]}")
+                raise RuntimeError("Téléchargement échoué")
+            _push_log("✅ Téléchargement terminé.")
+
+            # --- Étape 2 : Segmentation Whisper ---
+            admin_task_status.update({
+                "step": "Étape 2 : Segmentation IA (Whisper)",
+                "progress": 50,
+            })
+
+            wav_files = glob.glob("data/raw/*.wav")
+            _push_log(f"🔍 {len(wav_files)} fichier(s) WAV détecté(s) à segmenter.")
+
+            for wav_path in wav_files:
+                wav_name = os.path.basename(wav_path)
+                _push_log(f"🧠 Chargement du modèle Whisper 'base' en mémoire...")
+                _push_log(f"🎵 Transcription en cours : {wav_path}")
+
+                # Capture stdout du transcripteur pour logs temps réel
+                whisper_cmd = [python_bin, "src/transcription/transcriber.py", "--audio", wav_path]
+                whisper_proc = await asyncio.to_thread(
+                    subprocess.run, whisper_cmd, shell=False, capture_output=True, text=True
+                )
+
+                # Injecter chaque ligne de stdout dans les logs
+                for stdout_line in whisper_proc.stdout.splitlines():
+                    if stdout_line.strip():
+                        _push_log(f"  {stdout_line}")
+
+                if whisper_proc.returncode != 0:
+                    _push_log(f"⚠ Whisper a retourné une erreur pour {wav_name}: {whisper_proc.stderr[:200]}")
+                    continue
+
+                # Résumé post-segmentation : segments générés + durée couverte
+                json_path = wav_path.replace('.wav', '.json')
+                if os.path.exists(json_path):
+                    try:
+                        with open(json_path, 'r', encoding='utf-8') as json_file:
+                            audio_data = json.load(json_file)
+                        segments_list = audio_data.get("transcription", {}).get("segments", [])
+                        audio_duration = segments_list[-1]["end"] if segments_list else 0
+                        mins = int(audio_duration // 60)
+                        secs = int(audio_duration % 60)
+                        _push_log(f"✅ {wav_name} → {len(segments_list)} segments | Durée couverte : {mins}min{secs:02d}s")
+                    except Exception as json_parse_err:
+                        _push_log(f"⚠ Impossible de lire le JSON de résultat : {json_parse_err}")
+                else:
+                    _push_log(f"✅ Segmentation terminée pour {wav_name} (JSON introuvable pour résumé).")
+                await asyncio.sleep(0.5)
 
         # Étape 3 : Upload vers S3 + Enregistrement DynamoDB
         admin_task_status.update({

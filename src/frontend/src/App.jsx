@@ -50,6 +50,8 @@ function Login({ onLogin, error }) {
 function AdminPanel({ token, apiUrl }) {
   const [url, setUrl] = useState('')
   const [language, setLanguage] = useState('')
+  const [ingestMode, setIngestMode] = useState('single')   // 'single' | 'registry'
+  const [sources, setSources] = useState([])
   const [newLangCode, setNewLangCode] = useState('')
   const [newLangLabel, setNewLangLabel] = useState('')
   const [languages, setLanguages] = useState([])
@@ -63,14 +65,16 @@ function AdminPanel({ token, apiUrl }) {
   useEffect(() => {
     const load = async () => {
       try {
-        const [lr, ar, sr] = await Promise.all([
+        const [lr, ar, sr, sourcesR] = await Promise.all([
           fetch(`${apiUrl}/admin/languages`, { headers: { Authorization: `Bearer ${token}` } }),
           fetch(`${apiUrl}/admin/audios`,    { headers: { Authorization: `Bearer ${token}` } }),
           fetch(`${apiUrl}/admin/status`,    { headers: { Authorization: `Bearer ${token}` } }),
+          fetch(`${apiUrl}/admin/sources`,   { headers: { Authorization: `Bearer ${token}` } }),
         ])
         if (lr.ok) setLanguages((await lr.json()).languages)
         if (ar.ok) setAudios((await ar.json()).audios)
         if (sr.ok) setStatus(await sr.json())
+        if (sourcesR.ok) setSources((await sourcesR.json()).sources)
       } catch (e) { console.error(e) }
     }
     load()
@@ -100,21 +104,22 @@ function AdminPanel({ token, apiUrl }) {
   // Auto-scroll terminal
   useEffect(() => {
     logsEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [status?.message])
+  }, [status?.logs?.length])
 
   const handleCollect = async (e) => {
     e.preventDefault()
     setError('')
     try {
+      const body = { url: ingestMode === 'registry' ? '' : url, language, mode: ingestMode }
       const r = await fetch(`${apiUrl}/admin/collect`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ url, language }),
+        body: JSON.stringify(body),
       })
       if (!r.ok) {
         setError((await r.json()).detail || 'Erreur lors du lancement')
       } else {
-        setStatus({ is_running: true, step: 'Étape 1 : Téléchargement audio', progress: 10, message: 'Démarrage de la collecte...' })
+        setStatus({ is_running: true, step: 'Étape 1 : Téléchargement audio', progress: 10, message: 'Démarrage...', logs: [] })
         setUrl('')
         setActiveTab('ingest')
       }
@@ -341,7 +346,22 @@ function AdminPanel({ token, apiUrl }) {
               <p style={{ margin: '0.3rem 0 0', color: 'var(--text-secondary)', fontSize: '0.88rem' }}>Téléchargement → Segmentation Whisper → Indexation DynamoDB</p>
             </div>
 
-            {/* Formulaire */}
+            {/* Sélecteur de mode */}
+            <div style={{ display: 'flex', gap: '0.75rem', marginBottom: '1.5rem' }}>
+              {[{id:'single', icon:'🔗', label:'Vidéo / Playlist unique'}, {id:'registry', icon:'📋', label:'Registre de sources'}].map(m => (
+                <button key={m.id} type="button" onClick={() => setIngestMode(m.id)}
+                  style={{
+                    flex: 1, padding: '0.7rem 1rem', borderRadius: '10px', border: '2px solid',
+                    borderColor: ingestMode === m.id ? 'var(--accent-color)' : 'var(--border-color)',
+                    background: ingestMode === m.id ? 'rgba(102,126,234,0.1)' : 'var(--card-bg)',
+                    color: ingestMode === m.id ? 'var(--accent-color)' : 'var(--text-secondary)',
+                    fontWeight: 600, fontSize: '0.88rem', cursor: 'pointer', transition: 'all 0.2s'
+                  }}>{m.icon} {m.label}</button>
+              ))}
+            </div>
+
+            {/* Formulaire Mode URL unique */}
+            {ingestMode === 'single' && (
             <div style={{ background: 'var(--card-bg)', border: '1px solid var(--border-color)', borderRadius: '18px', padding: '2rem', marginBottom: '1.5rem', boxShadow: 'var(--shadow-color)' }}>
               <form onSubmit={handleCollect} className="login-form">
                 <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '1rem', marginBottom: '1rem' }}>
@@ -361,9 +381,7 @@ function AdminPanel({ token, apiUrl }) {
                 <button type="submit" disabled={status?.is_running} style={{
                   width: '100%', padding: '0.95rem', borderRadius: '10px', border: 'none',
                   cursor: status?.is_running ? 'not-allowed' : 'pointer',
-                  background: status?.is_running
-                    ? 'rgba(255,255,255,0.07)'
-                    : 'linear-gradient(135deg,#667eea 0%,#764ba2 100%)',
+                  background: status?.is_running ? 'rgba(255,255,255,0.07)' : 'linear-gradient(135deg,#667eea 0%,#764ba2 100%)',
                   color: status?.is_running ? 'rgba(255,255,255,0.35)' : '#fff',
                   fontWeight: 700, fontSize: '0.95rem', letterSpacing: '0.02em',
                   boxShadow: status?.is_running ? 'none' : '0 4px 24px rgba(102,126,234,0.4)',
@@ -378,6 +396,59 @@ function AdminPanel({ token, apiUrl }) {
                 )}
               </form>
             </div>
+            )}
+
+            {/* Formulaire Mode Registre */}
+            {ingestMode === 'registry' && (
+            <div style={{ background: 'var(--card-bg)', border: '1px solid var(--border-color)', borderRadius: '18px', padding: '2rem', marginBottom: '1.5rem', boxShadow: 'var(--shadow-color)' }}>
+              <h3 style={{ margin: '0 0 0.5rem', fontSize: '1rem', fontWeight: 700, color: 'var(--text-primary)' }}>Sources enregistrées (config/sources.json)</h3>
+              <p style={{ margin: '0 0 1.25rem', color: 'var(--text-secondary)', fontSize: '0.82rem' }}>Seules les sources avec le statut <strong style={{color:'#28c840'}}>active</strong> seront téléchargées.</p>
+              {sources.length === 0 ? (
+                <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>Aucune source configurée dans sources.json.</p>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginBottom: '1.5rem' }}>
+                  {sources.map((src, idx) => (
+                    <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: '1rem', padding: '0.85rem 1rem', borderRadius: '10px', background: 'var(--input-bg)', border: '1px solid var(--border-color)' }}>
+                      <span style={{ width: '10px', height: '10px', borderRadius: '50%', flexShrink: 0,
+                        background: src.status === 'active' ? '#28c840' : '#48484a',
+                        boxShadow: src.status === 'active' ? '0 0 8px #28c840' : 'none' }}/>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontWeight: 600, fontSize: '0.9rem', color: 'var(--text-primary)' }}>{src.channel_id}</div>
+                        <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', fontFamily: 'monospace' }}>{src.url}</div>
+                      </div>
+                      <span style={{ fontSize: '0.72rem', padding: '0.2rem 0.6rem', borderRadius: '20px',
+                        background: src.status === 'active' ? 'rgba(40,200,64,0.1)' : 'rgba(0,0,0,0.2)',
+                        color: src.status === 'active' ? '#28c840' : '#636366',
+                        fontWeight: 700, border: `1px solid ${src.status === 'active' ? 'rgba(40,200,64,0.3)' : 'var(--border-color)'}` }}>
+                        {src.status}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <form onSubmit={handleCollect}>
+                <div style={{ display: 'flex', gap: '1rem', alignItems: 'flex-end' }}>
+                  <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+                    <label style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: '0.4rem' }}>Langue de la collecte</label>
+                    <select value={language} onChange={e => setLanguage(e.target.value)} required disabled={status?.is_running}
+                      style={{ padding: '0.8rem', borderRadius: '8px', background: 'var(--input-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-color)', fontSize: '0.95rem', height: '45px' }}>
+                      <option value="" disabled>Sélectionner...</option>
+                      {languages.map(l => <option key={l.code} value={l.code}>{l.label}</option>)}
+                    </select>
+                  </div>
+                  <button type="submit" disabled={status?.is_running} style={{
+                    padding: '0 1.5rem', height: '45px', borderRadius: '10px', border: 'none',
+                    cursor: status?.is_running ? 'not-allowed' : 'pointer',
+                    background: status?.is_running ? 'rgba(255,255,255,0.07)' : 'linear-gradient(135deg,#667eea 0%,#764ba2 100%)',
+                    color: status?.is_running ? 'rgba(255,255,255,0.35)' : '#fff',
+                    fontWeight: 700, fontSize: '0.9rem', whiteSpace: 'nowrap',
+                  }}>
+                    {status?.is_running ? '⏳ En cours...' : '📋 Lancer le Registre'}
+                  </button>
+                </div>
+              </form>
+            </div>
+            )}
 
             {/* Gestion des langues */}
             <div style={{ background: 'var(--card-bg)', border: '1px solid var(--border-color)', borderRadius: '18px', padding: '1.5rem 2rem', marginBottom: '1.5rem', boxShadow: 'var(--shadow-color)' }}>
@@ -397,14 +468,14 @@ function AdminPanel({ token, apiUrl }) {
               </form>
             </div>
 
-            {/* Terminal de logs */}
-            {status && (status.is_running || status.progress > 0) && (
+            {/* Terminal de logs — affiche status.logs pour le suivi temps réel */}
+            {status && (status.is_running || (status.logs && status.logs.length > 0)) && (
               <div style={{ borderRadius: '16px', overflow: 'hidden', boxShadow: '0 12px 48px rgba(0,0,0,0.55)', border: '1px solid rgba(255,255,255,0.06)' }}>
                 {/* Barre titre macOS */}
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.8rem 1.25rem', background: '#1c1c1e' }}>
-                  <span style={{ width: '13px', height: '13px', borderRadius: '50%', background: '#ff5f57', display: 'inline-block' }}></span>
-                  <span style={{ width: '13px', height: '13px', borderRadius: '50%', background: '#febc2e', display: 'inline-block' }}></span>
-                  <span style={{ width: '13px', height: '13px', borderRadius: '50%', background: '#28c840', display: 'inline-block' }}></span>
+                  <span style={{ width: '13px', height: '13px', borderRadius: '50%', background: '#ff5f57', display: 'inline-block' }}/>
+                  <span style={{ width: '13px', height: '13px', borderRadius: '50%', background: '#febc2e', display: 'inline-block' }}/>
+                  <span style={{ width: '13px', height: '13px', borderRadius: '50%', background: '#28c840', display: 'inline-block' }}/>
                   <span style={{ marginLeft: '0.75rem', fontSize: '0.76rem', color: '#636366', fontFamily: 'monospace' }}>bantuvoice — pipeline.log</span>
                   <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
                     <span style={{ fontSize: '0.74rem', fontFamily: 'monospace', color: status.step?.startsWith('✅') ? '#28c840' : status.step?.startsWith('❌') ? '#ff5f57' : '#febc2e' }}>
@@ -419,18 +490,23 @@ function AdminPanel({ token, apiUrl }) {
                     height: '100%', width: `${status.progress}%`,
                     background: status.step?.startsWith('✅') ? '#28c840' : status.step?.startsWith('❌') ? '#ff5f57' : 'linear-gradient(90deg,#667eea,#764ba2)',
                     transition: 'width 0.6s ease', boxShadow: '0 0 10px rgba(102,126,234,0.5)',
-                  }}></div>
+                  }}/>
                 </div>
-                {/* Corps terminal */}
-                <div style={{ background: '#111113', padding: '1.25rem', fontFamily: '"Cascadia Code","Fira Code","Consolas",monospace', fontSize: '0.82rem', lineHeight: 2, maxHeight: '300px', overflowY: 'auto' }}>
-                  {(status.message || '').split('\n').map((line, i) => (
+                {/* Corps terminal — affiche TOUS les logs depuis status.logs */}
+                <div style={{ background: '#111113', padding: '1.25rem', fontFamily: '"Cascadia Code","Fira Code","Consolas",monospace', fontSize: '0.82rem', lineHeight: 2, maxHeight: '320px', overflowY: 'auto' }}>
+                  {(status.logs || []).map((line, i) => (
                     <div key={i}>
                       <span style={{ color: '#3a3a3c', marginRight: '0.7rem', userSelect: 'none' }}>›</span>
                       <span style={{
-                        color: line.startsWith('[SUCCÈS]')              ? '#28c840'
-                             : line.startsWith('Chargement')            ? '#febc2e'
-                             : line.startsWith('Transcription en cours')? '#60a5fa'
-                             : line.startsWith('❌')                    ? '#ff5f57'
+                        color: line.startsWith('✅')  ? '#28c840'
+                             : line.startsWith('❌')  ? '#ff5f57'
+                             : line.startsWith('⚠')   ? '#febc2e'
+                             : line.startsWith('🧠')  ? '#febc2e'
+                             : line.startsWith('🎵')  ? '#60a5fa'
+                             : line.startsWith('⬇')   ? '#a78bfa'
+                             : line.startsWith('📋')  ? '#a78bfa'
+                             : line.startsWith('🔗')  ? '#a78bfa'
+                             : line.includes('SUCCÈS') ? '#28c840'
                              : '#aeaeb2'
                       }}>{line}</span>
                     </div>
@@ -438,7 +514,7 @@ function AdminPanel({ token, apiUrl }) {
                   {status.is_running && (
                     <div>
                       <span style={{ color: '#3a3a3c', marginRight: '0.7rem' }}>›</span>
-                      <span style={{ display: 'inline-block', width: '9px', height: '15px', background: '#667eea', verticalAlign: 'text-bottom', animation: 'blink 1s step-end infinite' }}></span>
+                      <span style={{ display: 'inline-block', width: '9px', height: '15px', background: '#667eea', verticalAlign: 'text-bottom', animation: 'blink 1s step-end infinite' }}/>
                     </div>
                   )}
                   <div ref={logsEndRef} />
