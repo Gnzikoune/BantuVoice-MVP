@@ -1,33 +1,110 @@
 # Règles de Travail et de Traçabilité pour l'IA (BantuVoice)
 
-> **IMPORTANT :** En tant qu'IA, je m'engage à lire, comprendre et respecter scrupuleusement ces règles tout au long du développement du projet BantuVoice.
+> **IMPORTANT :** En tant qu'IA, je m'engage à lire, comprendre et respecter scrupuleusement ces règles tout au long du développement du projet BantuVoice. Ce document est la référence absolue de notre façon de travailler ensemble.
 
-## 1. Traçabilité Git Extrême (Hyper-Granularité)
+---
+
+## §1. Traçabilité Git Extrême (Hyper-Granularité)
+
 - **Une action = Un commit.** Chaque modification, ajout de fonction, correction de bug, ou même ajout de documentation doit faire l'objet d'un commit distinct.
 - **Jamais de commits groupés.** Ne jamais mélanger la création d'un fichier et sa modification ultérieure dans le même commit.
-- **Convention de nommage stricte :** Utiliser les *Conventional Commits* pour chaque message (ex: `feat:`, `fix:`, `docs:`, `chore:`, `refactor:`).
-- **Messages détaillés :** Si la modification est complexe, le message de commit doit inclure une description (body) expliquant *pourquoi* ce changement a été fait.
+- **Convention de nommage stricte :** Utiliser les *Conventional Commits* pour chaque message :
+  | Préfixe | Usage |
+  |---------|-------|
+  | `feat:` | Nouvelle fonctionnalité |
+  | `fix:` | Correction de bug |
+  | `docs:` | Documentation uniquement |
+  | `chore:` | Maintenance (nettoyage, dépendances) |
+  | `refactor:` | Réécriture de code sans changement de comportement |
+  | `style:` | Mise en forme UI/CSS, pas de logique |
+  | `release:` | Création d'un tag de version stable |
 
-## 2. Documentation Exhaustive
-- **Commentaires en ligne :** Chaque ligne de code complexe doit être commentée pour expliquer *l'intention*.
-- **Docstrings obligatoires :** Toute fonction, classe ou module créé doit inclure une Docstring standardisée expliquant ses paramètres, ce qu'elle retourne, et son rôle dans le pipeline BantuVoice.
-- **Mise à jour des README :** Toute nouvelle brique logicielle doit être documentée dans le `README.md` correspondant.
+- **Messages détaillés :** Pour les commits complexes, inclure un "body" expliquant *pourquoi*, pas seulement *quoi*.
 
-## 3. Méthodologie Pas-à-Pas
-- Ne jamais coder de larges blocs en une seule fois.
+---
+
+## §2. Documentation Exhaustive & Continue
+
+- **Commentaires en ligne :** Chaque bloc de code non-trivial doit expliquer l'*intention*, pas la mécanique.
+- **Docstrings obligatoires :** Toute fonction, classe ou module Python doit inclure une Docstring (paramètres, retour, rôle dans le pipeline).
+- **RESEARCH_LOG.md — Règle Fondamentale :** Tout bug critique, toute décision architecturale, et toute erreur bloquante **doit** être documentée dans [`RESEARCH_LOG.md`](./RESEARCH_LOG.md). L'IA doit systématiquement ajouter une nouvelle entrée numérotée après chaque résolution. Ne jamais "corriger en silence".
+- **Mise à jour du README :** Toute nouvelle fonctionnalité ou route API ajoutée doit être reflétée dans [`README.md`](./README.md) (tableau API, fonctionnalités, etc.).
+
+---
+
+## §3. Méthodologie Pas-à-Pas
+
+- Ne jamais coder de larges blocs en une seule fois sans validation intermédiaire.
 - Proposer la modification, l'expliquer, l'implémenter, puis la commiter immédiatement.
-- Attendre la validation de l'utilisateur (Gildas) avant de passer à l'étape conceptuelle suivante.
+- Si une modification entraîne une régression ou un bug, la diagnostiquer et documenter la résolution avant de poursuivre.
 
-## 4. Souveraineté et Architecture
-- Maintenir l'architecture du code propre et modulaire.
-- Toujours garder à l'esprit que le code produit a vocation à être auditable scientifiquement et reproductible.
+---
 
-## 5. Sécurité Maximale (Best Practices)
-- **Gestion des Secrets :** Ne jamais coder en dur (hardcoder) de clés API, mots de passe, ou tokens dans le code source. Toujours utiliser des variables d'environnement (`.env`).
-- **Sanitisation :** Valider et nettoyer toutes les entrées, même pour les scripts internes, afin d'éviter les failles d'injection ou les comportements imprévus.
-- **Principe du Moindre Privilège :** Les accès (fichiers, bases de données) doivent être restreints au strict minimum nécessaire pour l'exécution d'une tâche.
+## §4. Souveraineté et Architecture
 
-## 6. Historique des Décisions et Gestion des Erreurs (ADR & Bug Tracking)
-- **Choix Technologiques (Comparaison & Justification) :** Tout changement d'architecture ou introduction d'une nouvelle technologie (ex: *TinyDB vers Floci.io/DynamoDB*) doit faire l'objet d'une documentation claire. L'IA doit toujours comparer les alternatives, expliquer les avantages/inconvénients, et justifier le choix final en fonction des contraintes du projet (Scalabilité, MVP, Souveraineté).
-- **Documentation des Erreurs et Bugs :** Tout bug critique rencontré durant le développement, ou toute erreur bloquante, doit être consigné et documenté de manière transparente.
-- **Explication des Solutions :** Chaque bug résolu ne doit pas seulement être "corrigé en silence", mais la solution trouvée doit être expliquée pour laisser une trace méthodologique et pédagogique aux futurs développeurs.
+- Maintenir le code propre, modulaire et auditable scientifiquement.
+- **Architecture Cloud-Native (Floci.io / AWS) :** Toute donnée persistante (audios, segments, langues, utilisateurs) doit passer par les services AWS simulés localement :
+  - **Audios bruts** → Amazon S3 (bucket `bantuvoice-audios`)
+  - **Métadonnées, segments, langues, utilisateurs** → Amazon DynamoDB
+- **Aucune donnée hardcodée.** Les listes extensibles (ex: langues supportées) doivent être stockées en base de données, jamais en constante Python.
+
+---
+
+## §5. Sécurité Maximale (Best Practices)
+
+- **Gestion des Secrets :** Ne jamais coder en dur de clés API, mots de passe, ou tokens. Toujours utiliser les variables d'environnement via `.env` (voir `.env.example`).
+- **Sanitisation :** Valider et nettoyer toutes les entrées utilisateur (URL YouTube, codes de langue, etc.).
+- **Principe du Moindre Privilège :** Les routes admin (`/admin/*`) doivent systématiquement vérifier le rôle via `Depends(require_admin)`. Les linguistes ne doivent jamais pouvoir accéder aux endpoints d'administration.
+- **JWT :** Les tokens d'accès ont une durée de vie limitée (24h). Ne jamais stocker de token en clair côté serveur.
+
+---
+
+## §6. Historique des Décisions et Gestion des Erreurs (ADR & Bug Tracking)
+
+- **Choix Technologiques :** Tout changement d'architecture (ex: *TinyDB → DynamoDB*, *hardcodé → DynamoDB dynamique*) doit être justifié dans le `RESEARCH_LOG.md` avec comparaison des alternatives.
+- **Bugs :** Chaque bug résolu = une nouvelle entrée dans `RESEARCH_LOG.md` avec : le problème rencontré, l'hypothèse, l'expérimentation, et la résolution.
+- **Zéro fichier de test en production :** Les scripts de débogage temporaires (`debug_*.py`, `test_*.py`) doivent être supprimés dès que leur usage est terminé. Ils ne doivent jamais être commités sur la branche principale.
+
+---
+
+## §7. Gestion des Versions (Releases GitHub)
+
+- **Principe :** Une Release GitHub est une "photo officielle et immuable" du projet à une étape clé. Elle permet à l'équipe de revenir à un état stable à tout moment, et aux partenaires du CSGR-IA de suivre l'avancement formel du projet.
+
+- **Quand créer une Release ?** À chaque jalon majeur du projet :
+  | Version | Jalon correspondant |
+  |---------|---------------------|
+  | `v0.1.0-mvp` | MVP fonctionnel : Pipeline d'ingestion + Annotation + Dashboard Admin |
+  | `v0.2.0` | Première fonctionnalité majeure post-MVP (ex: export CSV, gestion multi-utilisateurs) |
+  | `v1.0.0` | Premier corpus publié sur Hugging Face, prêt pour la communauté scientifique |
+
+- **Comment créer une Release ?**
+  ```bash
+  # 1. Créer un tag Git annoté
+  git tag -a v0.1.0-mvp -m "MVP BantuVoice : Pipeline + Admin Dashboard + Double Annotation"
+  
+  # 2. Pousser le tag
+  git push origin v0.1.0-mvp
+  
+  # 3. Créer la Release sur GitHub avec des notes de version claires
+  # (via l'interface GitHub ou gh CLI)
+  ```
+
+- **Notes de version (Changelog) :** Chaque Release doit inclure :
+  - ✅ Ce qui a été ajouté
+  - 🐛 Ce qui a été corrigé
+  - ⚠️ Les changements potentiellement cassants (breaking changes)
+
+- **Packages GitHub :** Non utilisé pour l'instant. À envisager uniquement si les scripts d'export sont publiés comme bibliothèque Python réutilisable (`pip install bantuvoice-tools`).
+
+---
+
+## §8. Hygiène du Dépôt
+
+- **`.gitignore` strict :** Les fichiers `venv/`, `data/raw/`, `__pycache__/`, `*.env`, `node_modules/` ne doivent jamais être commités.
+- **Branches de travail :** Tout développement actif se fait sur une branche dédiée (ex: `feature/ma-fonctionnalite`). On ne pousse jamais directement sur `main`.
+- **Nettoyage régulier :** Les fichiers de test, de debug, ou les scripts temporaires doivent être supprimés dès qu'ils ne sont plus utiles. Un dépôt propre = un projet professionnel.
+
+---
+
+*Dernière mise à jour : Juin 2026 — Porteurs de projet : Gildas & Aryad (Pôle Technique & Innovation, CSGR-IA)*
