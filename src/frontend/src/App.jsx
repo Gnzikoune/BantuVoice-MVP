@@ -4,6 +4,7 @@ import './App.css'
 // Composant de Connexion (Login)
 function Login({ onLogin, error }) {
   const [username, setUsername] = useState('')
+  const [showPassword, setShowPassword] = useState(false);
   const [password, setPassword] = useState('')
 
   const handleSubmit = (e) => {
@@ -12,28 +13,57 @@ function Login({ onLogin, error }) {
   }
 
   return (
-    <div className="login-container">
-      <div className="login-card">
-        <h2>Connexion Scientifique</h2>
+    <div className="login-container" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh', padding: '2rem', background: 'var(--bg-color)', color: 'var(--text-primary)' }}>
+      <div className="login-card" style={{ width: '100%', maxWidth: '450px', background: 'var(--card-bg)', border: '1px solid var(--border-color)', borderRadius: '16px', padding: '2.5rem 2rem', boxShadow: '0 10px 30px rgba(0,0,0,0.4)', textAlign: 'center' }}>
+<h1 style={{ fontSize: '2.5rem', fontWeight: 800, color: 'var(--accent-color)', marginBottom: '0.5rem' }}>BantuVoice</h1>
+        <h2 style={{ margin: '0 0 1rem', fontSize: '1.4rem', fontWeight: 700, color: 'var(--text-primary)' }}>Connexion Scientifique</h2>
         <p>Identifiez-vous pour accéder à l'espace d'annotation BantuVoice.</p>
         
-        <div style={{background: 'rgba(255,255,255,0.05)', padding: '1rem', borderRadius: '8px', marginBottom: '1.5rem', fontSize: '0.9rem', textAlign: 'left', border: '1px solid rgba(255,255,255,0.1)'}}>
+        <div style={{background: 'rgba(255,255,255,0.07)', padding: '0.8rem 1rem', borderRadius: '10px', marginBottom: '1.2rem', fontSize: '0.85rem', textAlign: 'left', border: '1px solid rgba(255,255,255,0.15)', color: 'var(--text-secondary)'}}
+>
           <strong style={{color: 'var(--accent-color)'}}>Comptes de test :</strong><br/>
           👤 <code>linguiste_a</code> / <code>password123</code><br/>
           👤 <code>linguiste_b</code> / <code>password123</code><br/>
           👑 <code>gildas_admin</code> / <code>password123</code>
         </div>
         
-        {error && <div style={{color: '#ff6b6b', background: 'rgba(255,107,107,0.1)', padding: '0.8rem', borderRadius: '4px', marginBottom: '1rem', border: '1px solid rgba(255,107,107,0.3)'}}>{error}</div>}
+        {error && <div style={{color: '#fca5a5', background: 'rgba(239,68,68,0.1)', padding: '0.8rem 1rem', borderRadius: '8px', marginBottom: '1rem', border: '1px solid rgba(239,68,68,0.2)'}}>{error}</div>}
         
         <form onSubmit={handleSubmit} className="login-form">
           <div className="form-group">
-            <label>Identifiant</label>
-            <input type="text" value={username} onChange={(e) => setUsername(e.target.value)} required />
+            <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.07em' }}>Identifiant</label>
+            <input type="text" value={username} onChange={(e) => setUsername(e.target.value)} required style={{ width: '100%', padding: '0.8rem', borderRadius: '8px', background: 'var(--input-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-color)', fontSize: '0.95rem', boxSizing: 'border-box', height: '45px' }} />
           </div>
           <div className="form-group">
             <label>Mot de passe</label>
-            <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
+            <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+              <input
+                type={showPassword ? "text" : "password"}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+                style={{ flexGrow: 1, paddingRight: '35px', background: 'var(--input-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-color)', padding: '0.8rem', borderRadius: '8px', fontSize: '0.95rem', boxSizing: 'border-box', height: '45px' }}
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                style={{
+                  position: 'absolute',
+                  right: '10px',
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                  background: 'none',
+                  border: 'none',
+                  cursor: 'pointer',
+                  color: 'var(--text-secondary)',
+                  fontSize: '1.1rem',
+                  padding: '5px'
+                }}
+                aria-label={showPassword ? "Masquer le mot de passe" : "Afficher le mot de passe"}
+              >
+                {showPassword ? '🙈' : '👁️'}
+              </button>
+            </div>
           </div>
           <button type="submit" className="btn-submit" style={{width: '100%', justifyContent: 'center'}}>
             Se connecter
