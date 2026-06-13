@@ -1,85 +1,129 @@
 """
 Serveur Backend BantuVoice (FastAPI).
-Version 2.0 - Sécurisée (JWT) et Base de Données (TinyDB)
+Version 3.0 - Architecture Cloud-Native (Floci.io / AWS DynamoDB + S3)
+
+Décision architecturale (AI_WORKFLOW_RULES §6) :
+- TinyDB remplacé par Amazon DynamoDB (via Floci.io local) pour la scalabilité (jusqu'à 10 000+ audios).
+- Les fichiers audios sont stockés dans Amazon S3 (via Floci.io local) au lieu du disque brut.
+- En production, il suffira de changer AWS_ENDPOINT_URL pour pointer vers le vrai AWS.
 """
 
 import os
 import json
+import asyncio
+import glob
 from datetime import datetime, timedelta
 from typing import List, Optional
+from decimal import Decimal
 
 from fastapi import FastAPI, HTTPException, Depends, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 import jwt
 import bcrypt
-from tinydb import TinyDB, Query
+import boto3
+from botocore.exceptions import ClientError
 from dotenv import load_dotenv
 
 load_dotenv()
 
-# --- CONFIGURATION SÉCURITÉ ---
-# Clé secrète chargée depuis le fichier .env pour respecter les règles (AI_WORKFLOW_RULES)
+# --- CONFIGURATION SÉCURITÉ (AI_WORKFLOW_RULES §5) ---
 SECRET_KEY = os.getenv("JWT_SECRET_KEY", "fallback_secret_for_dev_only")
 DEFAULT_PASSWORD = os.getenv("DEFAULT_TEST_PASSWORD", "password123")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24  # 1 jour
 
+# --- CONFIGURATION AWS LOCAL (Floci.io) ---
+AWS_ENDPOINT_URL = os.getenv("AWS_ENDPOINT_URL", "http://localhost:4566")
+AWS_REGION = os.getenv("AWS_REGION", "eu-west-3")
+S3_BUCKET = "bantuvoice-audios"
+
+# Langues gabonaises supportées (liste extensible)
+SUPPORTED_LANGUAGES = [
+    {"code": "fang", "label": "Fang"},
+    {"code": "punu", "label": "Punu"},
+    {"code": "nzebi", "label": "Nzebi"},
+    {"code": "myene", "label": "Myene"},
+    {"code": "teke", "label": "Teke"},
+    {"code": "obamba", "label": "Obamba"},
+    {"code": "kota", "label": "Kota"},
+    {"code": "autre", "label": "Autre"},
+]
+
+def get_dynamodb():
+    """Retourne un client DynamoDB connecté à Floci (ou au vrai AWS en prod)."""
+    return boto3.resource(
+        'dynamodb',
+        endpoint_url=AWS_ENDPOINT_URL,
+        region_name=AWS_REGION,
+        aws_access_key_id="test",
+        aws_secret_access_key="test"
+    )
+
+def get_s3():
+    """Retourne un client S3 connecté à Floci (ou au vrai AWS en prod)."""
+    return boto3.client(
+        's3',
+        endpoint_url=AWS_ENDPOINT_URL,
+        region_name=AWS_REGION,
+        aws_access_key_id="test",
+        aws_secret_access_key="test"
+    )
+
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login")
 
-# Fonction utilitaire de hachage via Bcrypt direct (évite le bug de Passlib)
 def get_password_hash(password: str) -> str:
+    """Hash un mot de passe via Bcrypt (sans Passlib pour éviter les conflits de versions)."""
     salt = bcrypt.gensalt()
     return bcrypt.hashpw(password.encode('utf-8'), salt).decode('utf-8')
 
-# --- INITIALISATION BASE DE DONNÉES ---
-DB_DIR = "data/db"
-DATA_DIR = "data/raw"
-os.makedirs(DB_DIR, exist_ok=True)
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    """Vérifie un mot de passe Bcrypt."""
+    return bcrypt.checkpw(plain_password.encode('utf-8'), hashed_password.encode('utf-8'))
 
-db = TinyDB(os.path.join(DB_DIR, 'database.json'))
-users_table = db.table('users')
-annotations_table = db.table('annotations')
+# --- INITIALISATION BASE DE DONNÉES (DynamoDB) ---
+def init_db():
+    """
+    Initialise les comptes utilisateurs dans DynamoDB si absents.
+    Appelé au démarrage du serveur.
+    """
+    dynamodb = get_dynamodb()
+    users_table = dynamodb.Table('Users')
+
+    default_users = [
+        {"username": "gildas_admin", "full_name": "Gildas (Admin)", "role": "admin"},
+        {"username": "linguiste_a",  "full_name": "Linguiste A",    "role": "linguist"},
+        {"username": "linguiste_b",  "full_name": "Linguiste B",    "role": "linguist"},
+    ]
+
+    for u in default_users:
+        try:
+            users_table.get_item(Key={"username": u["username"]})["Item"]
+            print(f"Utilisateur '{u['username']}' existe déjà.")
+        except KeyError:
+            print(f"Création de l'utilisateur '{u['username']}'...")
+            users_table.put_item(Item={
+                **u,
+                "hashed_password": get_password_hash(DEFAULT_PASSWORD)
+            })
+        except Exception as e:
+            print(f"Erreur init_db pour '{u['username']}': {e}")
+
+try:
+    init_db()
+except Exception as e:
+    print(f"[AVERTISSEMENT] Impossible de connecter à Floci/DynamoDB au démarrage: {e}")
+    print("[AVERTISSEMENT] Vérifiez que le conteneur Docker 'bantuvoice-floci' est en cours d'exécution.")
 
 # --- TRACKING DE TÂCHE ADMIN ---
 admin_task_status = {
-    "is_running": False,
-    "step": "",
-    "progress": 0,
-    "message": ""
+    "is_running": False, "step": "", "progress": 0, "message": ""
 }
 
-# Fonction utilitaire pour créer des utilisateurs de test si la table est vide
-def init_db():
-    UserQuery = Query()
-    # Administrateur
-    if not users_table.contains(UserQuery.username == "gildas_admin"):
-        print("Initialisation : création du compte admin...")
-        users_table.insert({
-            "username": "gildas_admin",
-            "full_name": "Gildas (Admin)",
-            "hashed_password": get_password_hash(DEFAULT_PASSWORD),
-            "role": "admin"
-        })
-    # Linguistes
-    for user_id in ["linguiste_a", "linguiste_b"]:
-        if not users_table.contains(UserQuery.username == user_id):
-            users_table.insert({
-                "username": user_id,
-                "full_name": f"Linguiste {user_id.split('_')[-1].upper()}",
-                "hashed_password": get_password_hash(DEFAULT_PASSWORD),
-                "role": "linguist"
-            })
-        else:
-            # Compatibilité pour le MVP : mise à jour des rôles existants
-            users_table.update({"role": "linguist"}, UserQuery.username == user_id)
-
-init_db()
-
 # --- INITIALISATION API ---
-app = FastAPI(title="BantuVoice Annotation API", version="2.0")
+app = FastAPI(title="BantuVoice Annotation API", version="3.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -89,32 +133,26 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-if os.path.exists(DATA_DIR):
-    app.mount("/audio", StaticFiles(directory=DATA_DIR), name="audio")
-
 # --- MODÈLES PYDANTIC ---
 class Token(BaseModel):
     access_token: str
     token_type: str
 
 class AnnotationPayload(BaseModel):
-    video_id: str
-    segment_id: int
+    audio_id: str
+    segment_id: str
     annotated_text: str
 
-# --- FONCTIONS SÉCURITÉ ---
-def verify_password(plain_password: str, hashed_password: str) -> bool:
-    return bcrypt.checkpw(plain_password.encode('utf-8'), hashed_password.encode('utf-8'))
+class AdminCollectPayload(BaseModel):
+    url: str
+    language: str  # Code de la langue (ex: "fang")
 
+# --- FONCTIONS SÉCURITÉ ---
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     to_encode = data.copy()
-    if expires_delta:
-        expire = datetime.utcnow() + expires_delta
-    else:
-        expire = datetime.utcnow() + timedelta(minutes=15)
+    expire = datetime.utcnow() + (expires_delta or timedelta(minutes=15))
     to_encode.update({"exp": expire})
-    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
-    return encoded_jwt
+    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
 async def get_current_user(token: str = Depends(oauth2_scheme)):
     credentials_exception = HTTPException(
@@ -129,190 +167,303 @@ async def get_current_user(token: str = Depends(oauth2_scheme)):
             raise credentials_exception
     except jwt.PyJWTError:
         raise credentials_exception
-        
-    UserQuery = Query()
-    user = users_table.get(UserQuery.username == username)
+
+    dynamodb = get_dynamodb()
+    try:
+        response = dynamodb.Table('Users').get_item(Key={"username": username})
+        user = response.get("Item")
+    except Exception:
+        raise credentials_exception
+
     if user is None:
         raise credentials_exception
     return user
 
 def require_admin(current_user: dict = Depends(get_current_user)):
+    """Décorateur de sécurité : refuse l'accès si l'utilisateur n'est pas admin."""
     if current_user.get("role") != "admin":
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Privilèges d'administrateur requis")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN,
+                            detail="Privilèges d'administrateur requis")
     return current_user
 
-# --- ROUTES API ---
+# =============================================================================
+# ROUTES API
+# =============================================================================
 
 @app.post("/login", response_model=Token)
 async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends()):
-    UserQuery = Query()
-    user = users_table.get(UserQuery.username == form_data.username)
-    
+    dynamodb = get_dynamodb()
+    try:
+        response = dynamodb.Table('Users').get_item(Key={"username": form_data.username})
+        user = response.get("Item")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erreur DB: {str(e)}")
+
     if not user or not verify_password(form_data.password, user['hashed_password']):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Nom d'utilisateur ou mot de passe incorrect",
             headers={"WWW-Authenticate": "Bearer"},
         )
-        
-    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+
     access_token = create_access_token(
         data={"sub": user['username'], "full_name": user['full_name'], "role": user.get('role', 'linguist')},
-        expires_delta=access_token_expires
+        expires_delta=timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     )
     return {"access_token": access_token, "token_type": "bearer"}
 
 @app.get("/me")
 async def read_users_me(current_user: dict = Depends(get_current_user)):
-    return {"username": current_user["username"], "full_name": current_user["full_name"], "role": current_user.get("role", "linguist")}
+    return {
+        "username": current_user["username"],
+        "full_name": current_user["full_name"],
+        "role": current_user.get("role", "linguist")
+    }
+
+@app.get("/languages")
+def get_languages():
+    """Retourne la liste des langues gabonaises supportées par le système."""
+    return {"languages": SUPPORTED_LANGUAGES}
+
+@app.get("/audios")
+def get_audios(language: Optional[str] = None, current_user: dict = Depends(get_current_user)):
+    """
+    Retourne la liste des audios disponibles, optionnellement filtrés par langue.
+    Utilisé par le linguiste pour choisir sur quel audio travailler.
+    """
+    dynamodb = get_dynamodb()
+    try:
+        if language:
+            response = dynamodb.Table('Audios').scan(
+                FilterExpression=boto3.dynamodb.conditions.Attr('language').eq(language)
+            )
+        else:
+            response = dynamodb.Table('Audios').scan()
+        audios = response.get('Items', [])
+        # Conversion des Decimal en int/float pour la sérialisation JSON
+        for a in audios:
+            if 'segment_count' in a:
+                a['segment_count'] = int(a['segment_count'])
+        return {"audios": audios}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erreur lors de la lecture des audios: {str(e)}")
 
 @app.get("/segments")
-def get_segments_to_annotate(current_user: dict = Depends(get_current_user)):
+def get_segments_to_annotate(audio_id: str, current_user: dict = Depends(get_current_user)):
     """
-    Renvoie les segments disponibles. 
+    Renvoie les segments d'un audio spécifique.
     Logique d'aveuglement : le linguiste ne voit que son propre statut d'annotation.
     """
-    if not os.path.exists(DATA_DIR):
-        return {"segments": []}
-        
-    all_segments = []
-    AnnotationQuery = Query()
-    
-    for filename in os.listdir(DATA_DIR):
-        if filename.endswith(".json"):
-            filepath = os.path.join(DATA_DIR, filename)
-            try:
-                with open(filepath, 'r', encoding='utf-8') as f:
-                    data = json.load(f)
-                    
-                video_id = data.get("source_id")
-                audio_path = data.get("audio_path")
-                transcription = data.get("transcription", {})
-                
-                for seg in transcription.get("segments", []):
-                    # On cherche si L'UTILISATEUR ACTUEL a déjà annoté ce segment dans TinyDB
-                    my_annotation = annotations_table.get(
-                        (AnnotationQuery.video_id == video_id) & 
-                        (AnnotationQuery.segment_id == seg["id"]) & 
-                        (AnnotationQuery.annotator == current_user["username"])
-                    )
-                    
-                    # On compte le nombre total d'annotations sur ce segment (pour savoir si c'est doublement annoté)
-                    all_anns_for_seg = annotations_table.search(
-                        (AnnotationQuery.video_id == video_id) & 
-                        (AnnotationQuery.segment_id == seg["id"])
-                    )
-                    total_annotations = len(all_anns_for_seg)
-                    
-                    seg_info = {
-                        "video_id": video_id,
-                        "audio_path": audio_path,
-                        "segment_id": seg["id"],
-                        "start": seg["start"],
-                        "end": seg["end"],
-                        "whisper_text": seg["text"], 
-                        "annotated_text": my_annotation["text"] if my_annotation else "",
-                        "status": "annotated" if my_annotation else "pending",
-                        "total_annotations": total_annotations # Permet au web d'afficher si c'est en cours de double annotation
-                    }
-                    all_segments.append(seg_info)
-            except Exception as e:
-                print(f"Erreur lors de la lecture de {filename} : {e}")
-                continue
-                
-    return {"segments": all_segments}
+    dynamodb = get_dynamodb()
+    try:
+        response = dynamodb.Table('Segments').query(
+            KeyConditionExpression=boto3.dynamodb.conditions.Key('audio_id').eq(audio_id)
+        )
+        raw_segments = response.get('Items', [])
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erreur DB: {str(e)}")
+
+    segments = []
+    for seg in raw_segments:
+        # Conversion des types Decimal
+        seg['start'] = float(seg.get('start', 0))
+        seg['end'] = float(seg.get('end', 0))
+        seg['total_annotations'] = int(seg.get('total_annotations', 0))
+
+        # Aveuglement : on expose uniquement l'annotation de l'utilisateur connecté
+        annotations = seg.get('annotations', {})
+        my_annotation = annotations.get(current_user['username'], "")
+        seg['annotated_text'] = my_annotation
+        seg['status'] = "annotated" if my_annotation else "pending"
+        del seg['annotations']
+        segments.append(seg)
+
+    return {"segments": segments}
+
+@app.get("/audio/{audio_id}")
+def stream_audio(audio_id: str, current_user: dict = Depends(get_current_user)):
+    """Sert un fichier audio depuis S3 (Floci) en streaming."""
+    s3 = get_s3()
+    try:
+        obj = s3.get_object(Bucket=S3_BUCKET, Key=f"audios/{audio_id}.wav")
+        return StreamingResponse(obj['Body'], media_type="audio/wav")
+    except ClientError:
+        raise HTTPException(status_code=404, detail="Fichier audio introuvable dans S3.")
 
 @app.post("/annotate")
 def save_annotation(payload: AnnotationPayload, current_user: dict = Depends(get_current_user)):
     """
-    Sauvegarde l'annotation du linguiste connecté dans la base de données TinyDB (et non plus dans le JSON).
+    Sauvegarde l'annotation du linguiste connecté dans DynamoDB.
+    Utilise une map d'annotations par annotateur pour implémenter le protocole d'aveuglement.
     """
-    AnnotationQuery = Query()
-    
-    # On vérifie si l'utilisateur a déjà annoté ce segment
-    existing = annotations_table.get(
-        (AnnotationQuery.video_id == payload.video_id) & 
-        (AnnotationQuery.segment_id == payload.segment_id) & 
-        (AnnotationQuery.annotator == current_user["username"])
-    )
-    
-    if existing:
-        # Mise à jour
-        annotations_table.update(
-            {"text": payload.annotated_text, "timestamp": str(datetime.utcnow())},
-            doc_ids=[existing.doc_id]
-        )
-    else:
-        # Nouvelle insertion
-        annotations_table.insert({
-            "video_id": payload.video_id,
-            "segment_id": payload.segment_id,
-            "annotator": current_user["username"],
-            "text": payload.annotated_text,
-            "timestamp": str(datetime.utcnow())
-        })
-        
-    return {"status": "success", "message": "Annotation sauvegardée en base de données de manière sécurisée."}
-
-# --- ROUTES ADMIN ---
-import asyncio
-import glob
-
-class AdminCollectPayload(BaseModel):
-    url: str
-
-async def run_collection_pipeline(url: str):
+    dynamodb = get_dynamodb()
     try:
-        # Étape 1 : Téléchargement
-        process = await asyncio.create_subprocess_shell(
-            f"python src/collecte/downloader.py --url {url}",
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
+        dynamodb.Table('Segments').update_item(
+            Key={"audio_id": payload.audio_id, "segment_id": payload.segment_id},
+            UpdateExpression="SET annotations.#ann = :text, total_annotations = total_annotations + :inc",
+            ExpressionAttributeNames={"#ann": current_user['username']},
+            ExpressionAttributeValues={
+                ":text": payload.annotated_text,
+                ":inc": Decimal('1') if not _has_annotation(dynamodb, payload.audio_id, payload.segment_id, current_user['username']) else Decimal('0')
+            }
         )
-        await process.communicate()
-        
-        # Étape 2 : Découpage IA
-        admin_task_status["step"] = "Étape 2 : Découpage IA (Whisper)"
-        admin_task_status["progress"] = 50
-        admin_task_status["message"] = "Analyse et segmentation temporelle..."
-
-        wav_files = glob.glob("data/raw/*.wav")
-        for wav in wav_files:
-            process_vad = await asyncio.create_subprocess_shell(
-                f"python src/transcription/transcriber.py --audio {wav}",
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
-            )
-            await process_vad.communicate()
-
-        admin_task_status["step"] = "Terminé"
-        admin_task_status["progress"] = 100
-        admin_task_status["message"] = "La vidéo a été traitée avec succès et les segments sont disponibles."
-        
     except Exception as e:
-        admin_task_status["step"] = "Erreur"
-        admin_task_status["message"] = f"Échec critique: {str(e)}"
-    finally:
-        await asyncio.sleep(4)
-        admin_task_status["is_running"] = False
-        admin_task_status["progress"] = 0
+        raise HTTPException(status_code=500, detail=f"Erreur de sauvegarde: {str(e)}")
+
+    return {"status": "success", "message": "Annotation sauvegardée dans DynamoDB."}
+
+def _has_annotation(dynamodb, audio_id: str, segment_id: str, username: str) -> bool:
+    """Vérifie si un annotateur a déjà annoté un segment (pour la gestion du compteur)."""
+    try:
+        response = dynamodb.Table('Segments').get_item(Key={"audio_id": audio_id, "segment_id": segment_id})
+        item = response.get("Item", {})
+        return username in item.get("annotations", {})
+    except Exception:
+        return False
+
+# =============================================================================
+# ROUTES ADMIN
+# =============================================================================
+
+@app.get("/admin/languages")
+def admin_get_languages(current_user: dict = Depends(require_admin)):
+    """Retourne la liste des langues pour le formulaire d'administration."""
+    return {"languages": SUPPORTED_LANGUAGES}
+
+@app.get("/admin/audios")
+def admin_get_audios(current_user: dict = Depends(require_admin)):
+    """Tableau de bord admin : liste tous les audios dans la bibliothèque."""
+    dynamodb = get_dynamodb()
+    try:
+        response = dynamodb.Table('Audios').scan()
+        audios = response.get('Items', [])
+        for a in audios:
+            if 'segment_count' in a:
+                a['segment_count'] = int(a['segment_count'])
+        return {"audios": audios}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/admin/collect")
 async def admin_collect(payload: AdminCollectPayload, current_user: dict = Depends(require_admin)):
+    """
+    Lance une collecte en arrière-plan pour une URL YouTube.
+    Requiert désormais la langue de l'audio pour cataloguer correctement dans la bibliothèque.
+    """
     if admin_task_status["is_running"]:
-        raise HTTPException(status_code=400, detail="Une tâche de collecte est déjà en cours d'exécution.")
-    
-    admin_task_status["is_running"] = True
-    admin_task_status["step"] = "Étape 1 : Téléchargement"
-    admin_task_status["progress"] = 10
-    admin_task_status["message"] = f"Aspiration de la vidéo {payload.url} via yt-dlp..."
+        raise HTTPException(status_code=400, detail="Une tâche est déjà en cours.")
 
-    asyncio.create_task(run_collection_pipeline(payload.url))
+    # Validation de la langue
+    valid_codes = [l["code"] for l in SUPPORTED_LANGUAGES]
+    if payload.language not in valid_codes:
+        raise HTTPException(status_code=400, detail=f"Langue invalide. Codes valides: {valid_codes}")
+
+    admin_task_status.update({
+        "is_running": True,
+        "step": "Étape 1 : Téléchargement audio",
+        "progress": 10,
+        "message": f"Aspiration de '{payload.url}' via yt-dlp (langue: {payload.language})..."
+    })
+
+    asyncio.create_task(run_collection_pipeline(payload.url, payload.language))
     return {"message": "Collecte lancée en arrière-plan"}
 
 @app.get("/admin/status")
 def admin_status(current_user: dict = Depends(require_admin)):
     return admin_task_status
+
+async def run_collection_pipeline(url: str, language: str):
+    """
+    Pipeline de collecte asynchrone en arrière-plan :
+    1. Téléchargement via yt-dlp
+    2. Segmentation IA via Whisper
+    3. Upload S3 + insertion DynamoDB
+    """
+    try:
+        # Étape 1 : Téléchargement
+        process = await asyncio.create_subprocess_shell(
+            f"venv\\Scripts\\python.exe src/collecte/downloader.py --url \"{url}\"",
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+        )
+        stdout, stderr = await process.communicate()
+
+        # Étape 2 : Transcription/Segmentation
+        admin_task_status.update({
+            "step": "Étape 2 : Segmentation IA (Whisper)",
+            "progress": 50,
+            "message": "Analyse temporelle et découpage en segments..."
+        })
+
+        wav_files = glob.glob("data/raw/*.wav")
+        for wav in wav_files:
+            proc_vad = await asyncio.create_subprocess_shell(
+                f"venv\\Scripts\\python.exe src/transcription/transcriber.py --audio \"{wav}\"",
+                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+            )
+            await proc_vad.communicate()
+
+        # Étape 3 : Upload vers S3 + Enregistrement DynamoDB
+        admin_task_status.update({
+            "step": "Étape 3 : Enregistrement dans la bibliothèque",
+            "progress": 80,
+            "message": "Upload S3 et indexation dans la base de données..."
+        })
+
+        json_files = glob.glob("data/raw/*.json")
+        dynamodb = get_dynamodb()
+        s3 = get_s3()
+
+        for json_path in json_files:
+            with open(json_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+
+            audio_id = data.get("source_id", os.path.basename(json_path).replace(".json", ""))
+            transcription = data.get("transcription", {})
+            segments = transcription.get("segments", [])
+
+            # Upload du WAV vers S3
+            wav_path = json_path.replace(".json", ".wav")
+            if os.path.exists(wav_path):
+                with open(wav_path, 'rb') as wav_f:
+                    s3.put_object(Bucket=S3_BUCKET, Key=f"audios/{audio_id}.wav", Body=wav_f.read())
+
+            # Enregistrement de l'audio dans DynamoDB (table Audios)
+            dynamodb.Table('Audios').put_item(Item={
+                "audio_id": audio_id,
+                "language": language,
+                "source_url": url,
+                "segment_count": Decimal(str(len(segments))),
+                "created_at": datetime.utcnow().isoformat(),
+                "title": data.get("title", audio_id)
+            })
+
+            # Enregistrement de chaque segment dans DynamoDB (table Segments)
+            for seg in segments:
+                dynamodb.Table('Segments').put_item(Item={
+                    "audio_id": audio_id,
+                    "segment_id": str(seg["id"]),
+                    "start": Decimal(str(seg["start"])),
+                    "end": Decimal(str(seg["end"])),
+                    "whisper_text": seg.get("text", ""),
+                    "annotations": {},
+                    "total_annotations": Decimal('0')
+                })
+
+        admin_task_status.update({
+            "step": "✅ Terminé",
+            "progress": 100,
+            "message": f"Audio en langue '{language}' traité et disponible dans la bibliothèque."
+        })
+
+    except Exception as e:
+        admin_task_status.update({
+            "step": "❌ Erreur",
+            "message": f"Échec critique: {str(e)}",
+            "progress": 0
+        })
+    finally:
+        await asyncio.sleep(5)
+        admin_task_status["is_running"] = False
 
 if __name__ == "__main__":
     import uvicorn
