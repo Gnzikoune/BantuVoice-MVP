@@ -20,8 +20,11 @@ function Login({ onLogin, error }) {
         <div style={{background: 'rgba(255,255,255,0.05)', padding: '1rem', borderRadius: '8px', marginBottom: '1.5rem', fontSize: '0.9rem', textAlign: 'left', border: '1px solid rgba(255,255,255,0.1)'}}>
           <strong style={{color: 'var(--accent-color)'}}>Comptes de test (Double Annotation) :</strong><br/>
           👤 <code>linguiste_a</code> / <code>password123</code><br/>
-          👤 <code>linguiste_b</code> / <code>password123</code>
+          👤 <code>linguiste_b</code> / <code>password123</code><br/>
+          👑 <code>gildas_admin</code> / <code>password123</code>
         </div>
+        
+        {error && <div style={{color: '#ff6b6b', background: 'rgba(255,107,107,0.1)', padding: '0.8rem', borderRadius: '4px', marginBottom: '1rem', border: '1px solid rgba(255,107,107,0.3)'}}>{error}</div>}
         
         <form onSubmit={handleSubmit} className="login-form">
           <div className="form-group">
@@ -330,22 +333,9 @@ function App() {
         </div>
         <div style={{display: 'flex', gap: '1rem', alignItems: 'center'}}>
           {user?.role === 'admin' && (
-            <div className="tabs" style={{display: 'flex', gap: '0.5rem', marginRight: '1rem'}}>
-              <button 
-                className={`tab-btn ${activeTab === 'workspace' ? 'active' : ''}`}
-                onClick={() => setActiveTab('workspace')}
-                style={{padding: '0.5rem 1rem', borderRadius: '4px', border: 'none', background: activeTab === 'workspace' ? 'var(--accent-color)' : 'transparent', color: '#fff', cursor: 'pointer'}}
-              >
-                Espace Linguiste
-              </button>
-              <button 
-                className={`tab-btn ${activeTab === 'admin' ? 'active' : ''}`}
-                onClick={() => setActiveTab('admin')}
-                style={{padding: '0.5rem 1rem', borderRadius: '4px', border: 'none', background: activeTab === 'admin' ? 'var(--accent-color)' : 'transparent', color: '#fff', cursor: 'pointer'}}
-              >
-                ⚙️ Admin
-              </button>
-            </div>
+            <span style={{color: 'var(--accent-color)', fontWeight: 'bold', marginRight: '1rem', padding: '0.5rem 1rem', background: 'rgba(255,255,255,0.05)', borderRadius: '4px'}}>
+              👑 Mode Administrateur
+            </span>
           )}
           <button onClick={toggleTheme} className="theme-toggle" title="Basculer le thème">
             {theme === 'dark' ? '☀️' : '🌙'}
@@ -356,7 +346,7 @@ function App() {
         </div>
       </header>
 
-      {activeTab === 'admin' && user?.role === 'admin' ? (
+      {user?.role === 'admin' ? (
         <AdminPanel token={token} apiUrl={API_URL} />
       ) : loading && segments.length === 0 ? (
         <div className="empty-state">
