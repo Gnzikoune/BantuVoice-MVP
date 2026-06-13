@@ -572,6 +572,35 @@ async def run_collection_pipeline(url: str, language: str, mode: str = "single")
                     })
                 _push_log(f"✅ {audio_id} indexé — {len(segments)} segments dans DynamoDB.")
 
+            # Upload S3 des clips individuels pour les annotateurs
+            # Les clips sont stockés sous : segments/{audio_id}/seg_XXXX.wav
+            # Cette clé S3 est enregistrée dans DynamoDB pour générer des pre-signed URLs à la demande.
+            segments_dir = os.path.join("data", "segments", audio_id)
+            if os.path.isdir(segments_dir):
+                clip_files = sorted(glob.glob(os.path.join(segments_dir, "seg_*.wav")))
+                _push_log(f"☁ Upload S3 de {len(clip_files)} clips pour {audio_id}...")
+                for clip_path in clip_files:
+                    clip_name = os.path.basename(clip_path)
+                    s3_key = f"segments/{audio_id}/{clip_name}"
+                    # Extraction du segment_id depuis le nom de fichier (seg_0042.wav → "42")
+                    seg_id_str = str(int(clip_name.replace("seg_", "").replace(".wav", "")))
+                    with open(clip_path, 'rb') as clip_f:
+                        s3.put_object(
+                            Bucket=S3_BUCKET,
+                            Key=s3_key,
+                            Body=clip_f.read(),
+                            ContentType="audio/wav"
+                        )
+                    # Mise à jour DynamoDB : stocker la clé S3 pour génération future de pre-signed URL
+                    dynamodb.Table('Segments').update_item(
+                        Key={"audio_id": audio_id, "segment_id": seg_id_str},
+                        UpdateExpression="SET s3_key = :k",
+                        ExpressionAttributeValues={":k": s3_key}
+                    )
+                _push_log(f"✅ {len(clip_files)} clips disponibles sur S3 pour les annotateurs.")
+
+
+
             _push_log(f"✅ Pipeline terminé — langue '{language}' disponible dans la bibliothèque.")
             admin_task_status.update({
                 "step": "✅ Terminé",
@@ -647,6 +676,105 @@ def delete_language(code: str, current_user: dict = Depends(get_current_user)):
     dynamodb = get_dynamodb()
     dynamodb.Table('Languages').delete_item(Key={'code': code})
     return {"status": "success"}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# ENDPOINTS ANNOTATEURS — Accès audio via S3 Pre-Signed URLs
+# ─────────────────────────────────────────────────────────────────────────────
+# Solution Floci/AWS pour les annotateurs distribués :
+# Les fichiers audio ne sont JAMAIS servis directement depuis la machine de l'admin.
+# Chaque annotateur reçoit une URL temporaire pré-signée S3 (expire après 1h)
+# lui permettant d'écouter le clip directement dans son navigateur.
+# Aucun accès permanent au bucket n'est accordé — principe du moindre privilège.
+# ─────────────────────────────────────────────────────────────────────────────
+
+@app.get("/segments/{audio_id}")
+def get_segments_for_annotation(
+    audio_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Retourne la liste des segments d'un audio avec leur texte Whisper,
+    prêts pour l'interface d'annotation.
+
+    Paramètres :
+        audio_id : Identifiant unique de l'audio (ex: O97sabwUu6Y).
+
+    Retourne :
+        Liste de segments avec id, start, end, texte Whisper.
+    """
+    dynamodb = get_dynamodb()
+    try:
+        response = dynamodb.Table('Segments').query(
+            KeyConditionExpression=boto3.dynamodb.conditions.Key('audio_id').eq(audio_id)
+        )
+        segments = response.get('Items', [])
+        # Tri par segment_id numérique pour l'affichage séquentiel
+        segments.sort(key=lambda s: int(s.get('segment_id', 0)))
+        return {"audio_id": audio_id, "segments": segments, "count": len(segments)}
+    except Exception as db_err:
+        raise HTTPException(status_code=500, detail=f"Erreur DynamoDB : {db_err}")
+
+
+@app.get("/segments/{audio_id}/{segment_id}/audio")
+def get_segment_audio_url(
+    audio_id: str,
+    segment_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Génère une URL pré-signée S3 pour écouter un clip audio dans le navigateur.
+
+    Architecture Floci/AWS :
+        Le clip est stocké dans S3 sous segments/{audio_id}/seg_XXXX.wav.
+        L'URL pré-signée expire après 3600 secondes (1 heure).
+        Aucun fichier n'est servi depuis la machine locale de l'administrateur.
+        Les credentials AWS ne sont jamais exposés côté client.
+
+    Paramètres :
+        audio_id   : Identifiant de l'audio parent.
+        segment_id : Identifiant du segment (entier, ex: "42").
+
+    Retourne :
+        {"url": "https://s3.amazonaws.com/..."} — URL temporaire valide 1h.
+    """
+    dynamodb = get_dynamodb()
+    s3_client = get_s3()
+
+    # 1. Récupérer la clé S3 depuis DynamoDB
+    try:
+        item = dynamodb.Table('Segments').get_item(
+            Key={"audio_id": audio_id, "segment_id": segment_id}
+        ).get('Item')
+    except Exception as db_err:
+        raise HTTPException(status_code=500, detail=f"Erreur DynamoDB : {db_err}")
+
+    if not item:
+        raise HTTPException(status_code=404, detail="Segment introuvable.")
+
+    s3_key = item.get("s3_key")
+
+    # Fallback : reconstruire la clé S3 si non enregistrée (segments anciens)
+    if not s3_key:
+        seg_id_padded = str(int(segment_id)).zfill(4)
+        s3_key = f"segments/{audio_id}/seg_{seg_id_padded}.wav"
+
+    # 2. Générer la pre-signed URL (expire dans 1 heure)
+    try:
+        presigned_url = s3_client.generate_presigned_url(
+            ClientMethod="get_object",
+            Params={"Bucket": S3_BUCKET, "Key": s3_key},
+            ExpiresIn=3600  # 1 heure
+        )
+    except Exception as s3_err:
+        raise HTTPException(status_code=500, detail=f"Erreur génération URL S3 : {s3_err}")
+
+    return {
+        "url": presigned_url,
+        "expires_in_seconds": 3600,
+        "segment_id": segment_id,
+        "audio_id": audio_id
+    }
+
 
 if __name__ == "__main__":
     import uvicorn
