@@ -49,6 +49,8 @@ function Login({ onLogin, error }) {
       </div>
     </div>
   )
+}
+
 // Composant Panneau d'Administration
 function AdminPanel({ token, apiUrl }) {
   const [url, setUrl] = useState('')
