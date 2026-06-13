@@ -368,8 +368,14 @@ async def admin_collect(payload: AdminCollectPayload, current_user: dict = Depen
     if admin_task_status["is_running"]:
         raise HTTPException(status_code=400, detail="Une tâche est déjà en cours.")
 
-    # Validation de la langue
-    valid_codes = [l["code"] for l in SUPPORTED_LANGUAGES]
+    # Validation de la langue depuis DynamoDB
+    dynamodb = get_dynamodb()
+    try:
+        lang_response = dynamodb.Table('Languages').scan()
+        valid_codes = [item['code'] for item in lang_response.get('Items', [])]
+    except Exception:
+        valid_codes = []
+    
     if payload.language not in valid_codes:
         raise HTTPException(status_code=400, detail=f"Langue invalide. Codes valides: {valid_codes}")
 
