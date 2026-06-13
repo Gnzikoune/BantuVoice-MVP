@@ -26,3 +26,8 @@
 - **Gestion des Secrets :** Ne jamais coder en dur (hardcoder) de clés API, mots de passe, ou tokens dans le code source. Toujours utiliser des variables d'environnement (`.env`).
 - **Sanitisation :** Valider et nettoyer toutes les entrées, même pour les scripts internes, afin d'éviter les failles d'injection ou les comportements imprévus.
 - **Principe du Moindre Privilège :** Les accès (fichiers, bases de données) doivent être restreints au strict minimum nécessaire pour l'exécution d'une tâche.
+
+## 6. Historique des Décisions et Gestion des Erreurs (ADR & Bug Tracking)
+- **Choix Technologiques (Comparaison & Justification) :** Tout changement d'architecture ou introduction d'une nouvelle technologie (ex: *TinyDB vers Floci.io/DynamoDB*) doit faire l'objet d'une documentation claire. L'IA doit toujours comparer les alternatives, expliquer les avantages/inconvénients, et justifier le choix final en fonction des contraintes du projet (Scalabilité, MVP, Souveraineté).
+- **Documentation des Erreurs et Bugs :** Tout bug critique rencontré durant le développement, ou toute erreur bloquante, doit être consigné et documenté de manière transparente.
+- **Explication des Solutions :** Chaque bug résolu ne doit pas seulement être "corrigé en silence", mais la solution trouvée doit être expliquée pour laisser une trace méthodologique et pédagogique aux futurs développeurs.
