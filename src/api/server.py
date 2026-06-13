@@ -502,6 +502,27 @@ async def run_collection_pipeline(url: str, language: str, mode: str = "single")
                     _push_log(f"✅ Segmentation terminée pour {wav_name} (JSON introuvable pour résumé).")
                 await asyncio.sleep(0.5)
 
+            # --- Étape 2.5 : Découpage audio en clips individuels (FFmpeg) ---
+            # C'est l'étape qui produit les fichiers .wav par segment,
+            # indispensables pour l'interface d'annotation.
+            admin_task_status.update({
+                "step": "Étape 2.5 : Découpage audio (FFmpeg)",
+                "progress": 65,
+            })
+            _push_log("✂ Découpage des segments audio en clips individuels...")
+
+            split_cmd = [python_bin, "src/transcription/audio_splitter.py", "--all"]
+            split_proc = await asyncio.to_thread(
+                subprocess.run, split_cmd, shell=False, capture_output=True, text=True
+            )
+            for split_line in split_proc.stdout.splitlines():
+                if split_line.strip():
+                    _push_log(f"  {split_line}")
+            if split_proc.returncode != 0:
+                _push_log(f"⚠ Découpage audio : {split_proc.stderr[:300]}")
+            else:
+                _push_log("✅ Clips audio générés dans data/segments/.")
+
             # --- Étape 3 : Upload vers S3 + Enregistrement DynamoDB ---
             _push_log("☁ Upload S3 et indexation dans la base de données...")
             admin_task_status.update({

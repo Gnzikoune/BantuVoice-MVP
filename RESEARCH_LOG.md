@@ -133,3 +133,35 @@ Conformément à la section **9.3 du Cadre Architectural**, ce document trace to
 - Fixes critiques (`shell=True`, CORS, `asyncio.Lock`) appliqués dans `server.py`.
 - Chemin FFmpeg externalisé vers variable d'environnement `FFMPEG_PATH` dans `transcriber.py`.
 - Règle ajoutée dans `AI_WORKFLOW_RULES.md` §5 pour interdire `shell=True` et les credentials hardcodés à l'avenir.
+
+## Entrée 16 : Migration Whisper vanilla → faster-whisper + Création du module audio_splitter.py
+- **Date :** Juin 2026
+- **Problème #1 — Module manquant (bug critique) :** La segmentation Whisper produisait un JSON avec 579 timestamps (start/end) mais **aucun fichier audio ne sortait** du pipeline. `transcriber.py` n'a jamais inclus de logique de découpage audio — il se contentait de mettre à jour le JSON. L'étape de découpage des clips `.wav` individuels n'avait jamais été implémentée.
+- **Problème #2 — Performance :** Whisper vanilla (`openai-whisper`) sur CPU i5-1235U prend ~12-15 min pour 30 min d'audio, sollicite 100% du CPU, et nécessite PyTorch comme dépendance (>1 Go).
+
+### Comparaison des alternatives ASR évaluées
+
+| Outil | Vitesse CPU | RAM | Qualité langues rares | Verdict |
+|---|---|---|---|---|
+| **Whisper vanilla** | Référence lente | Lourd (PyTorch) | Bonne | ❌ À remplacer |
+| **faster-whisper** | 4× plus rapide | Très léger (CTranslate2) | Identique | ✅ **Retenu** |
+| **WhisperX** | Identique + diarisation | Moyen | Identique + alignement mot | ⚠ Futur v2 |
+| **Moonshine** | Plus rapide | Très léger | Non évalué sur bantu | ❌ Trop immature |
+| **Qwen3-ASR** | Rapide | Moyen | Non évalué | ❌ Écosystème immature |
+
+**Pourquoi faster-whisper et pas les autres :**
+- WhisperX est idéal pour la phase annotation (timestamps mot par mot, diarisation), mais ajoute `pyannote-audio` et `torch` comme dépendances lourdes — sur-ingénierie pour la phase collecte.
+- Moonshine et Qwen3-ASR n'ont pas été évalués sur les langues bantoues du Gabon — risque scientifique trop élevé pour remplacer un outil validé.
+- faster-whisper utilise **exactement les mêmes poids de modèle** que Whisper (Radford et al., 2023), uniquement réimplémentés via CTranslate2 — zéro risque de régression en qualité.
+
+### Configuration optimale pour la machine de développement
+- **CPU :** Intel i5-1235U (12 cœurs, sans CUDA dédié) → `device="cpu"`, `compute_type="int8"`
+- **Modèle :** `small` (242M paramètres) — meilleur compromis vitesse/qualité
+- **Gain estimé :** Audio 30 min → ~3-4 min (vs ~12-15 min avec Whisper vanilla)
+- **CUDA non installé :** Le MX570 A dispose de 2 Go de VRAM dédiée réelle — insuffisant pour les modèles medium/large. Le mode CPU + int8 est optimal pour cette machine.
+
+### Résolution
+1. `transcriber.py` réécrit avec `faster_whisper.WhisperModel` — même format JSON de sortie.
+2. `audio_splitter.py` créé (nouveau module) — découpe le WAV source en clips via `ffmpeg -c copy` (sans réencodage, quasi-instantané).
+3. Étape 2.5 ajoutée dans `run_collection_pipeline` (server.py) entre Whisper et l'upload S3.
+4. `requirements.txt` mis à jour : `openai-whisper` → `faster-whisper`, `torch` et `tinydb` supprimés.
