@@ -1,9 +1,9 @@
 yt-dlp==2026.6.9
-openai-whisper
-torch
+# Migration Whisper vanilla -> faster-whisper (RESEARCH_LOG Entree 16)
+# faster-whisper utilise CTranslate2 (C++) : 4x plus rapide sur CPU, sans torch requis.
+faster-whisper
 fastapi
 uvicorn
-tinydb
 pyjwt
 passlib
 bcrypt
