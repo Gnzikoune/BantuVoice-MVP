@@ -600,6 +600,41 @@ async def run_collection_pipeline(url: str, language: str, mode: str = "single")
                 _push_log(f"✅ {len(clip_files)} clips disponibles sur S3 pour les annotateurs.")
 
 
+                # --- Étape 4 : Purge des fichiers locaux temporaires ---
+                # Les fichiers audio ne sont nécessaires que pendant le traitement pipeline.
+                # Une fois uploadés sur S3, les conserver localement est inutile et coûteux en espace disque.
+                # SÉCURITÉ : la purge n'est déclenchée QUE si tous les clips ont bien été uploadés.
+                # Le JSON de métadonnées (data/raw/*.json) est conservé comme journal d'audit local.
+                admin_task_status.update({
+                    "step": "Étape 4 : Nettoyage des fichiers temporaires",
+                    "progress": 95,
+                })
+                _push_log("🗑 Purge des fichiers temporaires locaux...")
+
+                import shutil
+                purge_errors: list[str] = []
+
+                # Supprimer les clips découpés data/segments/{audio_id}/
+                if os.path.isdir(segments_dir):
+                    try:
+                        shutil.rmtree(segments_dir)
+                        _push_log(f"  ✓ data/segments/{audio_id}/ supprimé ({len(clip_files)} clips).")
+                    except OSError as purge_err:
+                        purge_errors.append(f"segments/{audio_id} : {purge_err}")
+
+                # Supprimer le WAV brut data/raw/{audio_id}.wav
+                raw_wav = os.path.join("data", "raw", f"{audio_id}.wav")
+                if os.path.exists(raw_wav):
+                    try:
+                        os.remove(raw_wav)
+                        _push_log(f"  ✓ data/raw/{audio_id}.wav supprimé.")
+                    except OSError as purge_err:
+                        purge_errors.append(f"raw/{audio_id}.wav : {purge_err}")
+
+                if purge_errors:
+                    _push_log(f"⚠ Erreurs de purge (non bloquants) : {'; '.join(purge_errors)}")
+                else:
+                    _push_log("✅ Disque local libéré. Toutes les données sont sur S3.")
 
             _push_log(f"✅ Pipeline terminé — langue '{language}' disponible dans la bibliothèque.")
             admin_task_status.update({
